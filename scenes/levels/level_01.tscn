@@ -1,0 +1,68 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="1"]
+
+[sub_resource type="RectangleShape2D" id="1"]
+size = Vector2(400, 24)
+
+[sub_resource type="RectangleShape2D" id="2"]
+size = Vector2(160, 24)
+
+[node name="Level01" type="Node2D"]
+
+[node name="Player" parent="." instance=ExtResource("1")]
+position = Vector2(0, -60)
+
+[node name="Terrain" type="Node2D" parent="."]
+
+[node name="Ground" type="StaticBody2D" parent="Terrain"]
+collision_layer = 1
+position = Vector2(0, 80)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Terrain/Ground"]
+shape = SubResource("1")
+
+[node name="Visual" type="ColorRect" parent="Terrain/Ground"]
+offset_left = -200.0
+offset_top = -12.0
+offset_right = 200.0
+offset_bottom = 12.0
+color = Color(0.3, 0.3, 0.35, 1)
+
+[node name="PlatformA" type="StaticBody2D" parent="Terrain"]
+collision_layer = 1
+position = Vector2(-80, -80)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Terrain/PlatformA"]
+shape = SubResource("2")
+
+[node name="Visual" type="ColorRect" parent="Terrain/PlatformA"]
+offset_left = -80.0
+offset_top = -12.0
+offset_right = 80.0
+offset_bottom = 12.0
+color = Color(0.4, 0.4, 0.45, 1)
+
+[node name="PlatformB" type="StaticBody2D" parent="Terrain"]
+collision_layer = 1
+position = Vector2(120, -200)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Terrain/PlatformB"]
+shape = SubResource("2")
+
+[node name="Visual" type="ColorRect" parent="Terrain/PlatformB"]
+offset_left = -80.0
+offset_top = -12.0
+offset_right = 80.0
+offset_bottom = 12.0
+color = Color(0.4, 0.4, 0.45, 1)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+
+[node name="BackgroundColor" type="ColorRect" parent="."]
+z_index = -10
+offset_left = -2000.0
+offset_top = -4000.0
+offset_right = 2000.0
+offset_bottom = 2000.0
+color = Color(0.12, 0.12, 0.16, 1)
