@@ -8,7 +8,14 @@
 [sub_resource type="BoxShape3D" id="BoxShape3D_body"]
 size = Vector3(0.9126, 1.0176, 0.9264)
 
-[node name="Player" type="CharacterBody3D"]
+[node name="Player" type="RigidBody3D"]
+mass = 4.0
+linear_damp = 0.6
+angular_damp = 6.0
+can_sleep = false
+axis_lock_linear_z = true
+axis_lock_angular_x = true
+axis_lock_angular_y = true
 script = ExtResource("3_player")
 
 [node name="Box" parent="." instance=ExtResource("1_box")]

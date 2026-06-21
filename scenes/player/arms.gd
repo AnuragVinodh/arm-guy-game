@@ -12,11 +12,13 @@ extends Node3D
 ## Think of it as a 2-bone pendulum hanging off each shoulder, chasing a target.
 
 ## The two arm chains in the skeleton. Bone names come straight from the glb.
-## `key` is the keyboard key that activates that arm — hold it to make the arm
-## track the mouse; release it and the arm freezes in its last pose.
+##   key    — hold to pose that (free) arm with the mouse; release and it freezes.
+##   button — hold that mouse button to GRAB whatever the palm is touching, and
+##            release to let go. Mapping is crossed: left click grabs with the
+##            RIGHT hand, right click grabs with the LEFT hand.
 const ARMS := [
-	{ "bicep": "bicep.l", "forearm": "forearm.l", "wrist": "wrist.l", "key": KEY_A },
-	{ "bicep": "bicep.r", "forearm": "forearm.r", "wrist": "wrist.r", "key": KEY_B },
+	{ "bicep": "bicep.l", "forearm": "forearm.l", "wrist": "wrist.l", "key": KEY_A, "button": MOUSE_BUTTON_RIGHT },
+	{ "bicep": "bicep.r", "forearm": "forearm.r", "wrist": "wrist.r", "key": KEY_D, "button": MOUSE_BUTTON_LEFT },
 ]
 
 ## How far the hand can reach, as a fraction of the full arm length. Keeping this
@@ -31,8 +33,25 @@ const ARMS := [
 ## Smoothing — higher = snappier, lower = floppier / more pendulum-like.
 @export_range(1.0, 40.0, 0.5) var follow_speed: float = 12.0
 
+## How close (world units) the palm must be to a surface to be able to grab it.
+@export_range(0.0, 2.0, 0.05) var grab_margin: float = 0.25
+
+## While a hand is gripping, the body is hauled toward the mouse cursor (leashed
+## within arm's reach of the grip — that's what lets you pull/hoist yourself up).
+## `pull_strength` is how aggressively it closes the gap; `max_pull_speed` caps
+## the resulting speed so a far cursor doesn't yank you violently.
+@export_range(1.0, 40.0, 0.5) var pull_strength: float = 12.0
+@export var max_pull_speed: float = 16.0
+
 var _skeleton: Skeleton3D
 var _camera: Camera3D
+
+## The torso this arm rig hangs off — the RigidBody3D a grab pins to the world.
+var _torso: PhysicsBody3D
+
+## Physics bodies the reach-raycast should ignore (the player's own torso, so an
+## arm never "collides" with the body it's attached to).
+var _exclude: Array[RID] = []
 
 ## Cached per-arm bone data so we don't look it up every frame.
 ##   bicep_idx, forearm_idx, wrist_idx : bone indices
@@ -55,6 +74,16 @@ func _ready() -> void:
 
 	_camera = get_viewport().get_camera_3d()
 
+	# Walk up to the owning physics body (the player torso) and exclude it from
+	# the reach-raycast, so an arm doesn't stop short on its own collision box.
+	var p := get_parent()
+	while p != null:
+		if p is PhysicsBody3D:
+			_torso = p as PhysicsBody3D
+			_exclude.append(_torso.get_rid())
+			break
+		p = p.get_parent()
+
 	for arm in ARMS:
 		var bicep_idx := _skeleton.find_bone(arm["bicep"])
 		var forearm_idx := _skeleton.find_bone(arm["forearm"])
@@ -74,6 +103,10 @@ func _ready() -> void:
 			"l1": l1,
 			"l2": l2,
 			"key": arm["key"],
+			"button": arm["button"],
+			"grabbed": false,
+			"anchor": Vector3.ZERO, # world-space grab point while grabbed
+			"rope_max": 0.0,        # how far (world) the body may stray from anchor
 		})
 
 	# Start the target somewhere sensible so the first frame doesn't lurch.
@@ -94,15 +127,109 @@ func _physics_process(delta: float) -> void:
 	_target_world = _target_world.lerp(goal, t)
 
 	# 2. Targets/poses for the skeleton live in skeleton-LOCAL space, so convert
-	#    the world target into that space once and reuse it for both arms.
+	#    world points into that space. The mouse target is shared by both arms;
+	#    a grabbed arm uses its own fixed anchor instead.
 	var to_skel := _skeleton.global_transform.affine_inverse()
-	var target_local := to_skel * _target_world
+	var mouse_target_local := to_skel * _target_world
 
-	# 3. Solve each arm independently — but only while its key is held. A
-	#    released arm is simply skipped, so it stays frozen in its last pose.
 	for chain in _chains:
-		if Input.is_key_pressed(chain["key"]):
-			_solve_arm(chain, target_local)
+		# 3. Grab / release: hold the button to grip, release to let go.
+		var holding: bool = Input.is_mouse_button_pressed(chain["button"])
+		if holding and not chain["grabbed"]:
+			_try_grab(chain)
+		elif not holding and chain["grabbed"]:
+			_release(chain)
+
+		# 4. Solve the arm. A grabbed hand stays glued to its world anchor (so it
+		#    holds on as the body is hauled around); otherwise it tracks the mouse
+		#    while its pose key is held; otherwise it's left frozen in place.
+		if chain["grabbed"]:
+			_solve_arm(chain, to_skel * chain["anchor"])
+		elif Input.is_key_pressed(chain["key"]):
+			_solve_arm(chain, mouse_target_local)
+
+	# 5. Pull the body. For every gripping hand, the body wants to sit at the
+	#    cursor but is leashed within arm's reach of that grip; we drive the torso
+	#    toward the average of those leashed points. This is the climb/hoist.
+	_pull_body()
+
+
+## Try to grab whatever the palm is touching. Casts a short ray from the shoulder
+## out through the current hand position; if it lands on a collider within
+## `grab_margin`, we pin the torso there.
+func _try_grab(chain: Dictionary) -> void:
+	if _torso == null:
+		return
+	var space := _skeleton.get_world_3d().direct_space_state
+	if space == null:
+		return
+
+	var xform := _skeleton.global_transform
+	var shoulder: Vector3 = xform * _skeleton.get_bone_global_pose(chain["bicep"]).origin
+	var hand: Vector3 = xform * _skeleton.get_bone_global_pose(chain["wrist"]).origin
+
+	var dir := (hand - shoulder)
+	if dir.length() < 1e-4:
+		return
+	dir = dir.normalized()
+
+	# Cast a touch past the hand so a palm resting flush on a surface still grabs.
+	var query := PhysicsRayQueryParameters3D.create(shoulder, hand + dir * grab_margin)
+	query.exclude = _exclude
+	var hit := space.intersect_ray(query)
+	if hit.is_empty():
+		return
+
+	_grab(chain, hit["position"], hit["collider"])
+
+
+## Lock the hand onto `anchor_world`. We don't use a rigid joint (that would fix
+## the body at a constant distance and make hoisting impossible); instead we
+## remember the grab point and the arm's reach, and _pull_body() does the rest.
+func _grab(chain: Dictionary, anchor_world: Vector3, _body: Object) -> void:
+	var world_scale := _skeleton.global_transform.basis.get_scale().x
+	chain["anchor"] = anchor_world
+	chain["rope_max"] = (chain["l1"] + chain["l2"]) * max_reach * world_scale
+	chain["grabbed"] = true
+
+
+## Let go. The torso keeps whatever velocity the pull gave it, so a well-timed
+## release flings you.
+func _release(chain: Dictionary) -> void:
+	chain["grabbed"] = false
+
+
+## Haul the torso toward the cursor for each gripping hand, leashed within that
+## hand's reach of its grab point. With nothing gripping, physics (gravity) rules.
+func _pull_body() -> void:
+	if _torso == null:
+		return
+
+	var target := Vector3.ZERO
+	var grips := 0
+	for chain in _chains:
+		if not chain["grabbed"]:
+			continue
+		# Where the body wants to be: the cursor, but no farther than arm's reach
+		# from this grab point.
+		var rel: Vector3 = _target_world - chain["anchor"]
+		var rope: float = chain["rope_max"]
+		if rel.length() > rope:
+			rel = rel.normalized() * rope
+		target += chain["anchor"] + rel
+		grips += 1
+
+	if grips == 0:
+		return # free fall / swing — leave the body to gravity.
+	target /= grips
+
+	# Velocity-drive toward the target: snappy and stable, and the body keeps this
+	# velocity on release for the fling.
+	var to_target := target - _torso.global_position
+	var vel := to_target * pull_strength
+	if vel.length() > max_pull_speed:
+		vel = vel.normalized() * max_pull_speed
+	_torso.linear_velocity = vel
 
 
 ## Project the mouse ray onto the vertical plane the player climbs in (the plane
@@ -145,6 +272,12 @@ func _solve_arm(chain: Dictionary, target: Vector3) -> void:
 
 	var dir := to_target.normalized()
 
+	# Don't let the hand clip through solid geometry: cast a ray (in world space)
+	# from the shoulder along the reach direction and, if it hits a collider,
+	# pull the reach in to the hit point. Areas (e.g. hazard zones) are ignored
+	# by ray queries, so only real collision boxes block the arm.
+	dist = _clamp_to_obstacle(a, dir, dist, reach_min)
+
 	# Law of cosines: how far along the shoulder->target line the elbow projects,
 	# and how far off to the side it bends.
 	var cos_shoulder: float = clamp((l1 * l1 + dist * dist - l2 * l2) / (2.0 * l1 * dist), -1.0, 1.0)
@@ -182,6 +315,33 @@ func _solve_arm(chain: Dictionary, target: Vector3) -> void:
 	# Forearm is parented to the bicep, so measure against the bicep's new basis.
 	var forearm_local := bicep_global.inverse() * forearm_global
 	_skeleton.set_bone_pose_rotation(forearm_idx, forearm_local.get_rotation_quaternion())
+
+
+## Shorten `dist` (skeleton-local units) if a collider sits between the shoulder
+## and the intended hand position. `a` and `dir` are in skeleton-local space.
+func _clamp_to_obstacle(a: Vector3, dir: Vector3, dist: float, reach_min: float) -> float:
+	var space := _skeleton.get_world_3d().direct_space_state
+	if space == null:
+		return dist
+
+	# Convert the shoulder + reach into world space for the physics query.
+	var xform := _skeleton.global_transform
+	var world_scale := xform.basis.get_scale().x # rig scale is uniform
+	if world_scale <= 0.0:
+		return dist
+	var from := xform * a
+	var dir_world := (xform.basis * dir).normalized()
+	var to := from + dir_world * (dist * world_scale)
+
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.exclude = _exclude
+	var hit := space.intersect_ray(query)
+	if hit.is_empty():
+		return dist
+
+	# Back into skeleton-local units, never letting the arm fold past its minimum.
+	var hit_dist: float = from.distance_to(hit["position"]) / world_scale
+	return max(reach_min, min(dist, hit_dist))
 
 
 ## Build an orthonormal basis whose +Y points along `y_dir`, using `roll_ref`
