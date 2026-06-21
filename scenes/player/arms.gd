@@ -25,16 +25,28 @@ const ARMS := [
 ## below 1.0 stops the arm from snapping bolt-straight when the mouse is far away.
 @export_range(0.1, 1.0, 0.01) var max_reach: float = 0.98
 
-## Which way the elbow bows. In the SCREEN/climbing plane the arms work in the
-## X-Y plane, so a small Z pole pushes the elbows out toward the camera and keeps
-## them from collapsing into a straight line. Tweak to taste.
-@export var elbow_pole: Vector3 = Vector3(0.0, -0.2, 1.0)
+## Which way the elbow bows, in WORLD space. The play happens in the X-Y plane,
+## so a pure +Z (toward-camera) pole bends the elbow out of the screen — which
+## means that when the arm has to fold (mouse close, or reach clamped at an
+## obstacle) the elbow swings toward the viewer instead of rotating sideways
+## across the screen. Keep it on +Z to avoid that sideways "arm rotates inward"
+## look; add a small X/Y lean only if you want a more natural in-plane bend and
+## can live with some screen-plane swing. NOTE: this is world space on purpose —
+## the rig itself is rotated, so a rig-local pole would leak into the screen
+## plane and produce exactly the rotation we're avoiding.
+@export var elbow_pole: Vector3 = Vector3(0.0, 0.0, 1.0)
 
 ## Smoothing — higher = snappier, lower = floppier / more pendulum-like.
 @export_range(1.0, 40.0, 0.5) var follow_speed: float = 12.0
 
 ## How close (world units) the palm must be to a surface to be able to grab it.
 @export_range(0.0, 2.0, 0.05) var grab_margin: float = 0.25
+
+## Skin/back-off (world units) kept between the arm and any surface it bumps into.
+## The IK solves the *wrist bone*, but the visible hand and fingers stick out past
+## it, so we stop the arm this far short of a collider to keep them from poking
+## through. Bump it up if hands still clip; down if the arm stops too far away.
+@export_range(0.0, 0.5, 0.01) var surface_offset: float = 0.1
 
 ## While a hand is gripping, the body is hauled toward the mouse cursor (leashed
 ## within arm's reach of the grip — that's what lets you pull/hoist yourself up).
@@ -272,31 +284,26 @@ func _solve_arm(chain: Dictionary, target: Vector3) -> void:
 
 	var dir := to_target.normalized()
 
-	# Don't let the hand clip through solid geometry: cast a ray (in world space)
-	# from the shoulder along the reach direction and, if it hits a collider,
-	# pull the reach in to the hit point. Areas (e.g. hazard zones) are ignored
-	# by ray queries, so only real collision boxes block the arm.
-	dist = _clamp_to_obstacle(a, dir, dist, reach_min)
+	# The bow pole is authored in world space (so it can point cleanly at the
+	# camera regardless of how the rig is rotated); bring it into skeleton-local
+	# space, which is where the IK math runs.
+	var pole := (_skeleton.global_transform.affine_inverse().basis * elbow_pole).normalized()
 
-	# Law of cosines: how far along the shoulder->target line the elbow projects,
-	# and how far off to the side it bends.
-	var cos_shoulder: float = clamp((l1 * l1 + dist * dist - l2 * l2) / (2.0 * l1 * dist), -1.0, 1.0)
-	var along := l1 * cos_shoulder
-	var aside := l1 * sqrt(max(0.0, 1.0 - cos_shoulder * cos_shoulder))
+	# Don't let the arm clip through solid geometry. The arm is a *bent* chain,
+	# so checking the straight shoulder->hand line isn't enough — the elbow and
+	# forearm can dip into a surface the hand isn't pointing at (e.g. an arm
+	# lying along the ground). Pull the reach in until both real bone segments
+	# clear all colliders, with a margin so the hand mesh doesn't poke through.
+	dist = _clamp_arm(a, dir, dist, reach_min, l1, l2, pole)
 
-	# Bend direction: the part of the pole that's perpendicular to the arm line.
-	var bend := (elbow_pole - dir * elbow_pole.dot(dir))
-	if bend.length() < 1e-4:
-		# Pole is parallel to the arm; fall back to any perpendicular axis.
-		bend = dir.cross(Vector3.RIGHT)
-		if bend.length() < 1e-4:
-			bend = dir.cross(Vector3.UP)
-	bend = bend.normalized()
+	# Resolve the elbow at the final, safe reach.
+	var solved := _bend_solve(a, dir, dist, l1, l2, pole)
+	var elbow: Vector3 = solved["elbow"]
+	var bend: Vector3 = solved["bend"]
+	var wrist := a + dir * dist                      # exact analytic hand position
 
-	# Elbow position, then the two bone directions.
-	var elbow := a + dir * along + bend * aside
-	var bicep_dir := (elbow - a).normalized()      # shoulder -> elbow
-	var forearm_dir := (target - elbow).normalized() # elbow -> wrist
+	var bicep_dir := (elbow - a).normalized()        # shoulder -> elbow
+	var forearm_dir := (wrist - elbow).normalized()  # elbow -> wrist
 
 	# Aim each bone's +Y down its direction. Use `bend` as the roll reference so
 	# the elbow consistently hinges in the bend plane.
@@ -317,31 +324,83 @@ func _solve_arm(chain: Dictionary, target: Vector3) -> void:
 	_skeleton.set_bone_pose_rotation(forearm_idx, forearm_local.get_rotation_quaternion())
 
 
-## Shorten `dist` (skeleton-local units) if a collider sits between the shoulder
-## and the intended hand position. `a` and `dir` are in skeleton-local space.
-func _clamp_to_obstacle(a: Vector3, dir: Vector3, dist: float, reach_min: float) -> float:
+## Solve the elbow for one arm at a given reach `dist`, in skeleton-local space.
+## `pole` is the (skeleton-local) bow direction. Returns the elbow position and
+## the bend direction (the side the elbow bows to).
+func _bend_solve(a: Vector3, dir: Vector3, dist: float, l1: float, l2: float, pole: Vector3) -> Dictionary:
+	# Law of cosines: how far along the shoulder->hand line the elbow projects,
+	# and how far off to the side it bends.
+	var cos_shoulder: float = clamp((l1 * l1 + dist * dist - l2 * l2) / (2.0 * l1 * dist), -1.0, 1.0)
+	var along := l1 * cos_shoulder
+	var aside := l1 * sqrt(max(0.0, 1.0 - cos_shoulder * cos_shoulder))
+
+	# Bend direction: the part of the pole that's perpendicular to the arm line.
+	var bend := (pole - dir * pole.dot(dir))
+	if bend.length() < 1e-4:
+		# Pole is parallel to the arm; fall back to any perpendicular axis.
+		bend = dir.cross(Vector3.RIGHT)
+		if bend.length() < 1e-4:
+			bend = dir.cross(Vector3.UP)
+	bend = bend.normalized()
+
+	return { "elbow": a + dir * along + bend * aside, "bend": bend }
+
+
+## Pull the reach `dist` in until neither bone segment (shoulder->elbow,
+## elbow->wrist) cuts through a collider. Because shrinking the reach moves the
+## elbow, we re-solve and re-test a few times so the pose converges. All inputs
+## are skeleton-local; `reach_min` is the tightest the arm may ever fold.
+func _clamp_arm(a: Vector3, dir: Vector3, dist: float, reach_min: float, l1: float, l2: float, pole: Vector3) -> float:
 	var space := _skeleton.get_world_3d().direct_space_state
 	if space == null:
 		return dist
 
-	# Convert the shoulder + reach into world space for the physics query.
 	var xform := _skeleton.global_transform
-	var world_scale := xform.basis.get_scale().x # rig scale is uniform
-	if world_scale <= 0.0:
-		return dist
-	var from := xform * a
-	var dir_world := (xform.basis * dir).normalized()
-	var to := from + dir_world * (dist * world_scale)
+	for _i in 4:
+		var solved := _bend_solve(a, dir, dist, l1, l2, pole)
+		var elbow: Vector3 = solved["elbow"]
+		var wrist := a + dir * dist
 
+		# Test the upper arm first; if it's blocked, the forearm test is moot
+		# because the elbow itself has to move.
+		var h1 = _cast_local(space, xform, a, elbow)
+		if h1 != null:
+			# Shrink the whole arm toward the fraction of the bicep that's clear.
+			var frac: float = clampf(a.distance_to(h1) / maxf(1e-4, a.distance_to(elbow)), 0.0, 1.0)
+			dist = maxf(reach_min, dist * frac)
+			continue
+
+		var h2 = _cast_local(space, xform, elbow, wrist)
+		if h2 != null:
+			# Forearm blocked: bring the hand back to (just shy of) the hit point.
+			dist = maxf(reach_min, a.distance_to(h2))
+			continue
+
+		break # both bones clear — this reach is safe
+	return dist
+
+
+## Cast a ray between two skeleton-local points. On a hit, return the hit
+## position (in skeleton-local space) backed off toward the start by
+## `surface_offset`, so the hand/finger mesh stops short of the surface instead
+## of poking through. Returns null when nothing is hit. Areas are ignored by ray
+## queries, so only solid colliders block the arm.
+func _cast_local(space: PhysicsDirectSpaceState3D, xform: Transform3D, p0: Vector3, p1: Vector3) -> Variant:
+	var from := xform * p0
+	var to := xform * p1
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.exclude = _exclude
 	var hit := space.intersect_ray(query)
 	if hit.is_empty():
-		return dist
+		return null
 
-	# Back into skeleton-local units, never letting the arm fold past its minimum.
-	var hit_dist: float = from.distance_to(hit["position"]) / world_scale
-	return max(reach_min, min(dist, hit_dist))
+	var hpos: Vector3 = hit["position"]
+	var seg := to - from
+	var seg_len := seg.length()
+	if seg_len > 1e-5:
+		var back: float = minf(surface_offset, hpos.distance_to(from))
+		hpos -= (seg / seg_len) * back
+	return xform.affine_inverse() * hpos
 
 
 ## Build an orthonormal basis whose +Y points along `y_dir`, using `roll_ref`

@@ -13,13 +13,15 @@ config_version=5
 config/name="ArmGuyGame"
 config/features=PackedStringArray("4.5", "Forward Plus")
 config/icon="res://icon.svg"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/levels/tutorial_level.tscn"
 
 [display]
 
-window/size/viewport_width=1280
-window/size/viewport_height=720
-window/stretch/mode="canvas_items"
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/size/mode=2
+window/stretch/mode="disabled"
+window/stretch/aspect="expand"
 
 [input]
 
@@ -39,10 +41,6 @@ restart={
 ]
 }
 
-[physics]
-
-2d/default_gravity=980.0
-
 [rendering]
 
-renderer/rendering_method="gl_compatibility"
+renderer/rendering_method="forward_plus"

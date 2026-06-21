@@ -9,13 +9,13 @@
 size = Vector3(0.9126, 1.0176, 0.9264)
 
 [node name="Player" type="RigidBody3D"]
-mass = 4.0
-linear_damp = 0.6
-angular_damp = 6.0
-can_sleep = false
 axis_lock_linear_z = true
 axis_lock_angular_x = true
 axis_lock_angular_y = true
+mass = 4.0
+can_sleep = false
+linear_damp = 0.6
+angular_damp = 6.0
 script = ExtResource("3_player")
 
 [node name="Box" parent="." instance=ExtResource("1_box")]
@@ -26,5 +26,5 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5088, 0)
 shape = SubResource("BoxShape3D_body")
 
 [node name="ArmFront" parent="." instance=ExtResource("2_arms")]
-transform = Transform3D(0.008737639, 0, -0.29987273, 0, 0.3, 0, 0.29987273, 0, 0.008737639, 0, 0.35, 0)
+transform = Transform3D(0.008737639, 0, -0.29987273, 0, 0.3, 0, 0.29987273, 0, 0.008737639, 0, 0.6382853, 0)
 script = ExtResource("4_arms")
