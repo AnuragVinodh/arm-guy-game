@@ -1,8 +1,9 @@
-[gd_scene load_steps=43 format=3 uid="uid://dvrfbvsiu6dar"]
+[gd_scene load_steps=44 format=3 uid="uid://dvrfbvsiu6dar"]
 
 [ext_resource type="PackedScene" uid="uid://c6d78w18ffyso" path="res://scenes/player/player.tscn" id="1_player"]
 [ext_resource type="Script" uid="uid://ch1dfeu5u6ka7" path="res://scenes/camera_follow.gd" id="2_camera"]
 [ext_resource type="Script" uid="uid://641ut4p7y3ji" path="res://scenes/death_plane.gd" id="3_death"]
+[ext_resource type="Shader" path="res://scenes/levels/grid_ground.gdshader" id="4_grid"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_mat"]
 sky_top_color = Color(0.4, 0.58, 0.85, 1)
@@ -44,8 +45,12 @@ adjustment_brightness = 1.0
 adjustment_contrast = 1.06
 adjustment_saturation = 1.12
 
-[sub_resource type="StandardMaterial3D" id="Mat_ground"]
-albedo_color = Color(0.3, 0.35, 0.3, 1)
+[sub_resource type="ShaderMaterial" id="Mat_ground"]
+shader = ExtResource("4_grid")
+shader_parameter/base_color = Color(0.3, 0.35, 0.3, 1)
+shader_parameter/line_color = Color(0.19, 0.23, 0.2, 1)
+shader_parameter/grid_size = 1.0
+shader_parameter/roughness_val = 0.95
 
 [sub_resource type="BoxMesh" id="Box_B"]
 size = Vector3(57.5, 1, 6)
@@ -55,6 +60,8 @@ size = Vector3(57.5, 1, 6)
 
 [sub_resource type="StandardMaterial3D" id="Mat_wall"]
 albedo_color = Color(0.4, 0.4, 0.45, 1)
+roughness = 0.9
+metallic = 0.0
 
 [sub_resource type="BoxMesh" id="Box_A"]
 size = Vector3(1, 10, 6)
@@ -76,6 +83,7 @@ size = Vector3(14, 1, 6)
 
 [sub_resource type="StandardMaterial3D" id="Mat_pit"]
 albedo_color = Color(0.08, 0.08, 0.1, 1)
+roughness = 1.0
 
 [sub_resource type="BoxMesh" id="Box_M"]
 size = Vector3(14, 1, 8)
@@ -85,6 +93,8 @@ size = Vector3(14, 1, 8)
 
 [sub_resource type="StandardMaterial3D" id="Mat_obstacle"]
 albedo_color = Color(0.75, 0.45, 0.2, 1)
+roughness = 0.85
+metallic = 0.0
 
 [sub_resource type="BoxMesh" id="Box_C"]
 size = Vector3(1, 0.6, 4)
@@ -118,8 +128,8 @@ size = Vector3(1, 0.8, 4)
 
 [sub_resource type="StandardMaterial3D" id="Mat_bar"]
 albedo_color = Color(0.95, 0.8, 0.15, 1)
-metallic = 0.2
-roughness = 0.5
+metallic = 0.75
+roughness = 0.35
 
 [sub_resource type="CylinderMesh" id="Cyl_bar"]
 top_radius = 0.15
@@ -132,6 +142,8 @@ radius = 0.15
 
 [sub_resource type="StandardMaterial3D" id="Mat_frame"]
 albedo_color = Color(0.22, 0.22, 0.26, 1)
+metallic = 0.6
+roughness = 0.5
 
 [sub_resource type="BoxMesh" id="Box_K"]
 size = Vector3(12, 0.2, 0.2)
@@ -181,6 +193,12 @@ directional_shadow_max_distance = 140.0
 transform = Transform3D(0.8660254, 0.25, -0.4330127, 0, 0.8660254, 0.5, 0.5, -0.4330127, 0.75, 0, 12, 0)
 light_color = Color(0.6, 0.7, 0.85, 1)
 light_energy = 0.35
+
+[node name="RimLight" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, -0.9538, 0.3012, 0, -0.3012, -0.9538, 0, 10, -8)
+light_color = Color(0.82, 0.88, 1, 1)
+light_energy = 0.7
+light_specular = 1.0
 
 [node name="Terrain" type="Node3D" parent="."]
 
