@@ -214,8 +214,17 @@ func _try_grab(chain: Dictionary) -> void:
 		return
 
 	# Pivot on the hand tip itself (not the surface point), so the arm stays
-	# extended and the body swings around the palm.
-	_grab(chain, hand, hits[0]["collider"])
+	# extended and the body swings around the palm. A Bar is the exception: it
+	# pivots on its cross-section center (the bar axis), so the torso orbits the
+	# true center and can spin around the bar without the arm jamming off-center.
+	var collider: Object = hits[0]["collider"]
+	var anchor: Vector3 = hand
+	# Duck-typed so this file needn't depend on the Bar class: anything exposing
+	# axis_center() (i.e. a Bar) supplies its own cross-section-center pivot.
+	if collider != null and collider.has_method("axis_center"):
+		anchor = collider.call("axis_center", hand)
+		anchor.z = _torso.global_position.z  # keep the swing in the 2.5D play plane
+	_grab(chain, anchor, collider)
 
 
 ## Lock the hand onto `anchor_world` and turn it into a pivot. We don't use a

@@ -41,10 +41,12 @@ Main (Node3D)                       scenes/main.tscn
 - Mouse target = mouse ray projected onto the camera-facing plane through the shoulders.
 - Reach is clamped to the nearest obstacle via a raycast from shoulder along the arm (excludes the torso; `Area3D`s don't block) so hands don't clip through colliders.
 - Push (`_push_off`): every frame a posed free arm whose hand touches a surface (shoulder→cursor raycast hits) reflects the surface-resisted part of the commanded hand motion back onto the torso's `linear_velocity` (`push_gain`, per-frame add capped by `max_push_speed`). Motion *away* from the surface is dropped, and a motionless hand adds nothing.
-- Grab: raycast shoulder→palm (+`grab_margin`); on hit, lock the hand's IK target to the contact point and record the torso→anchor distance as the orbit radius. **No physics joint** — the hold is the IK glue plus the pivot below.
+- Grab: overlap-test a sphere of radius `grab_margin` at the hand tip (only the palm grabs, not the forearm/elbow); on hit, lock the hand's IK target to the anchor and record the torso→anchor distance as the orbit radius. The anchor is the hand tip, **except** on a `Bar` (duck-typed via `axis_center()`), where it's the center of the bar's circular cross-section so the torso orbits the true center. **No physics joint** — the hold is the IK glue plus the pivot below.
 - Pivot/swing (`_pivot_body`): for each gripping hand, target = the point at orbit radius from the anchor in the *direction* of the cursor; the torso's `linear_velocity` is driven toward the average target (`swing_strength`, capped by `max_swing_speed`). The body orbits the grab point; the cursor sets the angle.
 
 Exports: `max_reach 0.98`, `elbow_pole (0,-0.2,1)`, `follow_speed 12`, `grab_margin 0.25`, `surface_offset 0.1`, `swing_strength 8`, `max_swing_speed 16`, `push_gain 8`, `max_push_speed 8`.
+
+**bar.gd** (`class_name Bar`, `StaticBody3D`) — `scenes/obstacles/bar.gd`. A grabbable cylindrical bar (monkey-bar / high-bar). Exports `axis` (local axis the cylinder runs along, default +Y); `axis_center(world_point)` returns the point on that axis nearest the hand — the cross-section center the grab pivots on. The five `MonkeyBars/Bar*` in `tutorial_level.tscn` use it.
 
 **camera_follow.gd** (`Camera3D`) — follows the Player on X/Y, holds Z (depth) constant, preserves the authored offset. `follow_speed 8` (0 = snap).
 

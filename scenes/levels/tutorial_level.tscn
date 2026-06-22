@@ -1,9 +1,10 @@
-[gd_scene load_steps=44 format=3 uid="uid://dvrfbvsiu6dar"]
+[gd_scene load_steps=45 format=3 uid="uid://dvrfbvsiu6dar"]
 
 [ext_resource type="PackedScene" uid="uid://c6d78w18ffyso" path="res://scenes/player/player.tscn" id="1_player"]
 [ext_resource type="Script" uid="uid://ch1dfeu5u6ka7" path="res://scenes/camera_follow.gd" id="2_camera"]
 [ext_resource type="Script" uid="uid://641ut4p7y3ji" path="res://scenes/death_plane.gd" id="3_death"]
 [ext_resource type="Shader" path="res://scenes/levels/grid_ground.gdshader" id="4_grid"]
+[ext_resource type="Script" path="res://scenes/obstacles/bar.gd" id="5_bar"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_mat"]
 sky_top_color = Color(0.4, 0.58, 0.85, 1)
@@ -318,6 +319,7 @@ shape = SubResource("Shp_I")
 
 [node name="Bar1" type="StaticBody3D" parent="MonkeyBars"]
 transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 45.5, 2.8, 0)
+script = ExtResource("5_bar")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar1"]
 material_override = SubResource("Mat_bar")
@@ -328,6 +330,7 @@ shape = SubResource("CylShp_bar")
 
 [node name="Bar2" type="StaticBody3D" parent="MonkeyBars"]
 transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 48, 2.8, 0)
+script = ExtResource("5_bar")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar2"]
 material_override = SubResource("Mat_bar")
@@ -338,6 +341,7 @@ shape = SubResource("CylShp_bar")
 
 [node name="Bar3" type="StaticBody3D" parent="MonkeyBars"]
 transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 50.5, 2.8, 0)
+script = ExtResource("5_bar")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar3"]
 material_override = SubResource("Mat_bar")
@@ -348,6 +352,7 @@ shape = SubResource("CylShp_bar")
 
 [node name="Bar4" type="StaticBody3D" parent="MonkeyBars"]
 transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 53, 2.8, 0)
+script = ExtResource("5_bar")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar4"]
 material_override = SubResource("Mat_bar")
@@ -358,6 +363,7 @@ shape = SubResource("CylShp_bar")
 
 [node name="Bar5" type="StaticBody3D" parent="MonkeyBars"]
 transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 55.5, 2.8, 0)
+script = ExtResource("5_bar")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar5"]
 material_override = SubResource("Mat_bar")
