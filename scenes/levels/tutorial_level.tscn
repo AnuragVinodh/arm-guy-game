@@ -3,18 +3,16 @@
 [ext_resource type="PackedScene" uid="uid://c6d78w18ffyso" path="res://scenes/player/player.tscn" id="1_player"]
 [ext_resource type="Script" uid="uid://ch1dfeu5u6ka7" path="res://scenes/camera_follow.gd" id="2_camera"]
 [ext_resource type="Script" uid="uid://641ut4p7y3ji" path="res://scenes/death_plane.gd" id="3_death"]
-[ext_resource type="Shader" path="res://scenes/levels/grid_ground.gdshader" id="4_grid"]
-[ext_resource type="Script" path="res://scenes/obstacles/bar.gd" id="5_bar"]
+[ext_resource type="Shader" uid="uid://jdwdkvb0xwse" path="res://scenes/levels/grid_ground.gdshader" id="4_grid"]
+[ext_resource type="Script" uid="uid://dk25xr5celqub" path="res://scenes/obstacles/bar.gd" id="5_bar"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_mat"]
 sky_top_color = Color(0.4, 0.58, 0.85, 1)
 sky_horizon_color = Color(0.82, 0.86, 0.89, 1)
 sky_curve = 0.1
-sky_energy_multiplier = 1.0
 ground_bottom_color = Color(0.3, 0.34, 0.36, 1)
 ground_horizon_color = Color(0.82, 0.86, 0.89, 1)
 ground_curve = 0.04
-sun_angle_max = 30.0
 
 [sub_resource type="Sky" id="Sky_res"]
 sky_material = SubResource("Sky_mat")
@@ -23,30 +21,26 @@ sky_material = SubResource("Sky_mat")
 background_mode = 2
 sky = SubResource("Sky_res")
 ambient_light_source = 3
-ambient_light_energy = 1.0
 ambient_light_sky_contribution = 0.7
 tonemap_mode = 2
 tonemap_white = 1.2
 ssao_enabled = true
 ssao_radius = 0.5
 ssao_intensity = 1.6
-ssao_power = 1.5
-ssao_detail = 0.5
 glow_enabled = true
 glow_intensity = 0.5
 glow_bloom = 0.05
-glow_hdr_threshold = 1.0
 glow_blend_mode = 1
 fog_enabled = true
 fog_light_color = Color(0.82, 0.86, 0.9, 1)
 fog_density = 0.0035
 fog_sky_affect = 0.0
 adjustment_enabled = true
-adjustment_brightness = 1.0
 adjustment_contrast = 1.06
 adjustment_saturation = 1.12
 
 [sub_resource type="ShaderMaterial" id="Mat_ground"]
+render_priority = 0
 shader = ExtResource("4_grid")
 shader_parameter/base_color = Color(0.3, 0.35, 0.3, 1)
 shader_parameter/line_color = Color(0.19, 0.23, 0.2, 1)
@@ -62,7 +56,6 @@ size = Vector3(57.5, 1, 6)
 [sub_resource type="StandardMaterial3D" id="Mat_wall"]
 albedo_color = Color(0.4, 0.4, 0.45, 1)
 roughness = 0.9
-metallic = 0.0
 
 [sub_resource type="BoxMesh" id="Box_A"]
 size = Vector3(1, 10, 6)
@@ -84,7 +77,6 @@ size = Vector3(14, 1, 6)
 
 [sub_resource type="StandardMaterial3D" id="Mat_pit"]
 albedo_color = Color(0.08, 0.08, 0.1, 1)
-roughness = 1.0
 
 [sub_resource type="BoxMesh" id="Box_M"]
 size = Vector3(14, 1, 8)
@@ -95,7 +87,6 @@ size = Vector3(14, 1, 8)
 [sub_resource type="StandardMaterial3D" id="Mat_obstacle"]
 albedo_color = Color(0.75, 0.45, 0.2, 1)
 roughness = 0.85
-metallic = 0.0
 
 [sub_resource type="BoxMesh" id="Box_C"]
 size = Vector3(1, 0.6, 4)
@@ -133,13 +124,13 @@ metallic = 0.75
 roughness = 0.35
 
 [sub_resource type="CylinderMesh" id="Cyl_bar"]
-top_radius = 0.15
-bottom_radius = 0.15
+top_radius = 0.05
+bottom_radius = 0.05
 height = 4.0
 
 [sub_resource type="CylinderShape3D" id="CylShp_bar"]
 height = 4.0
-radius = 0.15
+radius = 0.05
 
 [sub_resource type="StandardMaterial3D" id="Mat_frame"]
 albedo_color = Color(0.22, 0.22, 0.26, 1)
@@ -187,7 +178,6 @@ shadow_enabled = true
 shadow_bias = 0.04
 shadow_normal_bias = 1.5
 shadow_blur = 1.5
-directional_shadow_mode = 2
 directional_shadow_max_distance = 140.0
 
 [node name="FillLight" type="DirectionalLight3D" parent="."]
@@ -199,7 +189,6 @@ light_energy = 0.35
 transform = Transform3D(1, 0, 0, 0, -0.9538, 0.3012, 0, -0.3012, -0.9538, 0, 10, -8)
 light_color = Color(0.82, 0.88, 1, 1)
 light_energy = 0.7
-light_specular = 1.0
 
 [node name="Terrain" type="Node3D" parent="."]
 
@@ -318,7 +307,7 @@ shape = SubResource("Shp_I")
 [node name="MonkeyBars" type="Node3D" parent="."]
 
 [node name="Bar1" type="StaticBody3D" parent="MonkeyBars"]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 45.5, 2.8, 0)
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 45.5, 3.0835137, 0)
 script = ExtResource("5_bar")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar1"]
@@ -328,19 +317,8 @@ mesh = SubResource("Cyl_bar")
 [node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/Bar1"]
 shape = SubResource("CylShp_bar")
 
-[node name="Bar2" type="StaticBody3D" parent="MonkeyBars"]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 48, 2.8, 0)
-script = ExtResource("5_bar")
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar2"]
-material_override = SubResource("Mat_bar")
-mesh = SubResource("Cyl_bar")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/Bar2"]
-shape = SubResource("CylShp_bar")
-
 [node name="Bar3" type="StaticBody3D" parent="MonkeyBars"]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 50.5, 2.8, 0)
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 50.5, 3.084, 0)
 script = ExtResource("5_bar")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar3"]
@@ -350,19 +328,8 @@ mesh = SubResource("Cyl_bar")
 [node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/Bar3"]
 shape = SubResource("CylShp_bar")
 
-[node name="Bar4" type="StaticBody3D" parent="MonkeyBars"]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 53, 2.8, 0)
-script = ExtResource("5_bar")
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar4"]
-material_override = SubResource("Mat_bar")
-mesh = SubResource("Cyl_bar")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/Bar4"]
-shape = SubResource("CylShp_bar")
-
 [node name="Bar5" type="StaticBody3D" parent="MonkeyBars"]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 55.5, 2.8, 0)
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 55.5, 3.084, 0)
 script = ExtResource("5_bar")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar5"]
