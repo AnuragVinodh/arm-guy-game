@@ -5,8 +5,7 @@
 [ext_resource type="Script" uid="uid://brrx40wjh6jwf" path="res://scenes/player/player.gd" id="3_player"]
 [ext_resource type="Script" uid="uid://b3jhl3eijpmjm" path="res://scenes/player/arms.gd" id="4_arms"]
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_body"]
-size = Vector3(0.9126, 1.0176, 0.9264)
+[sub_resource type="SphereShape3D" id="SphereShape3D_lvxji"]
 
 [node name="Player" type="RigidBody3D"]
 axis_lock_linear_z = true
@@ -23,7 +22,7 @@ transform = Transform3D(6, 0, 0, 0, 6, 0, 0, 0, 6, 0, 0, 0)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5088, 0)
-shape = SubResource("BoxShape3D_body")
+shape = SubResource("SphereShape3D_lvxji")
 
 [node name="ArmFront" parent="." instance=ExtResource("2_arms")]
 transform = Transform3D(0.008737639, 0, -0.29987273, 0, 0.3, 0, 0.29987273, 0, 0.008737639, 0, 0.6382853, 0)

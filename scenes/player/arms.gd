@@ -200,7 +200,11 @@ func _physics_process(delta: float) -> void:
 		#    touches a surface shoves the body (the always-on push); otherwise the
 		#    arm is left frozen in place.
 		if chain["grabbed"]:
-			_solve_arm(chain, to_skel * chain["anchor"])
+			# Don't clamp the reach while gripping: the hand must stay glued to the
+			# anchor, and the surface-avoidance raycast would otherwise pull it off and
+			# make the elbow fold/unfold as the body orbits (clunky). Clipping is fine
+			# here — you're holding on.
+			_solve_arm(chain, to_skel * chain["anchor"], false)
 			chain["prev_desired"] = null
 		elif Input.is_key_pressed(chain["key"]):
 			_solve_arm(chain, mouse_target_local)
@@ -475,8 +479,10 @@ func _mouse_target() -> Vector3:
 	return hit if hit != null else _target_world
 
 
-## Analytic two-bone IK for one arm, all in skeleton-local space.
-func _solve_arm(chain: Dictionary, target: Vector3) -> void:
+## Analytic two-bone IK for one arm, all in skeleton-local space. `clamp_reach`
+## pulls the arm in so its bones don't clip geometry — wanted for a free posing arm,
+## but skipped while gripping so the hand stays pinned to its anchor (see caller).
+func _solve_arm(chain: Dictionary, target: Vector3, clamp_reach: bool = true) -> void:
 	var bicep_idx: int = chain["bicep"]
 	var forearm_idx: int = chain["forearm"]
 	var l1: float = chain["l1"]
@@ -508,7 +514,9 @@ func _solve_arm(chain: Dictionary, target: Vector3) -> void:
 	# forearm can dip into a surface the hand isn't pointing at (e.g. an arm
 	# lying along the ground). Pull the reach in until both real bone segments
 	# clear all colliders, with a margin so the hand mesh doesn't poke through.
-	dist = _clamp_arm(a, dir, dist, reach_min, l1, l2, pole)
+	# Skipped while gripping so the hand stays pinned to the anchor.
+	if clamp_reach:
+		dist = _clamp_arm(a, dir, dist, reach_min, l1, l2, pole)
 
 	# Resolve the elbow at the final, safe reach.
 	var solved := _bend_solve(a, dir, dist, l1, l2, pole)
