@@ -59,6 +59,16 @@ const ARMS := [
 @export_range(1.0, 40.0, 0.5) var swing_strength: float = 8.0
 @export var max_swing_speed: float = 16.0
 
+## RELEASE FLING. Let go mid-swing and the body launches tangentially at the speed
+## it was orbiting (v = ω·r), in the direction it was rotating — wind up a swing,
+## release, and you fly off the arc. `fling_gain` scales it (1.0 = true orbital
+## speed), `max_fling_speed` caps the launch, and `spin_smooth` smooths the measured
+## spin so one jittery frame can't spike it. Let go while holding still → no spin →
+## you just drop.
+@export var fling_gain: float = 1.0
+@export var max_fling_speed: float = 20.0
+@export_range(1.0, 60.0, 1.0) var spin_smooth: float = 25.0
+
 ## ALWAYS-ON ARM PUSH. A *free* (posed, not gripping) arm whose hand is touching a
 ## surface shoves the body when you rotate the arm — pressing into the surface
 ## pushes you off along its normal, sweeping along it recoils you opposite the
@@ -134,6 +144,8 @@ func _ready() -> void:
 			"anchor": Vector3.ZERO, # world-space grab point while grabbed
 			"pivot_r": 0.0,         # body's orbit radius around the grab anchor
 			"prev_desired": null,   # last frame's commanded hand pos (world), for push
+			"swing_angle": 0.0,     # body's angle around the anchor (play plane), for fling
+			"swing_omega": 0.0,     # smoothed angular speed of the swing, rad/s
 		})
 
 	# Start the target somewhere sensible so the first frame doesn't lurch.
@@ -185,7 +197,7 @@ func _physics_process(delta: float) -> void:
 	#    radius; the cursor sets the angle while that arm's pose key is held. We
 	#    drive the torso toward the average of those orbit points. This is the
 	#    climb/swing.
-	_pivot_body()
+	_pivot_body(delta)
 
 
 ## Try to grab whatever the palm is touching. Overlap-tests a small sphere
@@ -234,19 +246,35 @@ func _grab(chain: Dictionary, anchor_world: Vector3, _body: Object) -> void:
 	chain["anchor"] = anchor_world
 	chain["pivot_r"] = maxf(0.05, _torso.global_position.distance_to(anchor_world))
 	chain["grabbed"] = true
+	# Seed swing tracking from the current angle so the first frame reads ~0 spin
+	# (not a spike) — the fling builds up only as you actually start swinging.
+	var rel := _torso.global_position - anchor_world
+	chain["swing_angle"] = atan2(rel.y, rel.x)
+	chain["swing_omega"] = 0.0
 
 
-## Let go. The torso keeps whatever velocity the pull gave it, so a well-timed
-## release flings you.
+## Let go. The torso is launched tangentially at the swing's orbital speed
+## (v = ω·r), in the direction it was rotating, so a well-timed release flings you
+## along the arc. Holding still at release (no spin) just drops you.
 func _release(chain: Dictionary) -> void:
 	chain["grabbed"] = false
+	if _torso == null:
+		return
+	var rel: Vector3 = _torso.global_position - chain["anchor"]
+	rel.z = 0.0
+	# Rotating rel by 90° gives the tangent direction; scaling by the signed angular
+	# speed turns the spin into the matching orbital velocity (magnitude |ω|·r).
+	var fling: Vector3 = Vector3(-rel.y, rel.x, 0.0) * (chain["swing_omega"] * fling_gain)
+	if fling.length() > max_fling_speed:
+		fling = fling.normalized() * max_fling_speed
+	_torso.linear_velocity = fling
 
 
 ## Swing the torso around each gripping hand. The hand is a fixed pivot; the body
 ## orbits it at the radius captured on grab, and the cursor's direction from the
 ## anchor sets where on that circle the body wants to be. Sweep the cursor around
 ## the anchor and the body rotates around it. With nothing gripping, gravity rules.
-func _pivot_body() -> void:
+func _pivot_body(delta: float) -> void:
 	if _torso == null:
 		return
 
@@ -259,6 +287,15 @@ func _pivot_body() -> void:
 		# the swing while this arm's pose key is held; with the key up the body
 		# holds its CURRENT angle, so a grip doesn't chase the mouse on its own.
 		var to_body: Vector3 = _torso.global_position - chain["anchor"]
+
+		# Track how fast the body is sweeping around the anchor (in the play plane),
+		# EMA-smoothed, so _release can fling it off tangentially at that speed.
+		var ang := atan2(to_body.y, to_body.x)
+		var d_ang := wrapf(ang - chain["swing_angle"], -PI, PI)
+		chain["swing_angle"] = ang
+		var inst_omega := d_ang / maxf(delta, 1e-5)
+		chain["swing_omega"] = lerpf(chain["swing_omega"], inst_omega, clampf(spin_smooth * delta, 0.0, 1.0))
+
 		var dir: Vector3 = to_body
 		if Input.is_key_pressed(chain["key"]):
 			var rel: Vector3 = _target_world - chain["anchor"]
@@ -273,8 +310,8 @@ func _pivot_body() -> void:
 		return # free fall / swing — leave the body to gravity.
 	target /= grips
 
-	# Velocity-drive toward the orbit spot: snappy and stable, and the body keeps
-	# this velocity on release for the fling.
+	# Velocity-drive toward the orbit spot: snappy and stable. (The release fling is
+	# computed separately in _release from the tracked angular speed, not this vel.)
 	var to_target := target - _torso.global_position
 	var vel := to_target * swing_strength
 	if vel.length() > max_swing_speed:
