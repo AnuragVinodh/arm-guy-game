@@ -51,11 +51,12 @@ const ARMS := [
 @export_range(0.0, 0.5, 0.01) var surface_offset: float = 0.1
 
 ## GRAB = PIVOT. A gripping hand is pinned to its grab point and the body orbits
-## that point at a fixed radius (the arm length at the moment of grabbing). While
-## that arm's pose key is held the cursor sets the *angle* — sweep it around the
-## anchor and the body swings around it like a hand on a clock; release the key and
-## the body holds its current angle. `swing_strength` is how hard it chases that
-## angle; `max_swing_speed` caps the swing so a fast cursor flick doesn't teleport.
+## that point. While that arm's pose key is held the cursor steers like a steering
+## wheel — rotating it around the anchor turns the body the SAME way, starting from
+## wherever the body is when steering begins (so a grab never snaps the body across
+## the pivot). Release the key and the grip goes passive (free pendulum).
+## `swing_strength` is how hard it chases the steered angle; `max_swing_speed` caps
+## the swing so a fast cursor flick doesn't teleport.
 @export_range(1.0, 40.0, 0.5) var swing_strength: float = 18.0
 @export var max_swing_speed: float = 16.0
 
@@ -156,6 +157,10 @@ func _ready() -> void:
 			"prev_desired": null,   # last frame's commanded hand pos (world), for push
 			"swing_angle": 0.0,     # body's angle around the anchor (play plane), for fling
 			"swing_omega": 0.0,     # smoothed angular speed of the swing, rad/s
+			"steering": false,        # mid active-steer session? (relative cursor steering)
+			"steer_body_ang": 0.0,    # body's orbit angle the current steer started from (rad)
+			"steer_cursor_ang": 0.0,  # last cursor angle around the anchor (rad)
+			"steer_has_cursor": false,# was the cursor off the pivot last steer frame?
 		})
 
 	# Start the target somewhere sensible so the first frame doesn't lurch.
@@ -260,6 +265,9 @@ func _grab(chain: Dictionary, anchor_world: Vector3, body: Object) -> void:
 	# into the surface, fighting the reach-clamp and making the body spasm — so the
 	# orbit radius stays fixed for non-bar grabs.
 	chain["on_bar"] = body != null and body.has_method("axis_center")
+	# Fresh grab: clear any stale steer session so the first steer frame re-pins the
+	# body's angle here (no snap across the pivot).
+	chain["steering"] = false
 	# How far the radius may straighten out: extend only by the arm's current slack
 	# (full reach from the shoulder minus how extended it already is), so pulling the
 	# arm taut into a spoke can't yank the hand off the anchor.
@@ -319,21 +327,36 @@ func _pivot_body(delta: float) -> void:
 		chain["swing_omega"] = lerpf(chain["swing_omega"], inst_omega, clampf(spin_smooth * delta, 0.0, 1.0))
 
 		if Input.is_key_pressed(chain["key"]):
-			# ACTIVE: the cursor steers the swing. On a bar, also ease the radius out
-			# toward full reach so the arm straightens into a rigid spoke.
+			# ACTIVE: the cursor steers like a steering wheel — rotating it around the
+			# anchor rotates the body the SAME way, starting from wherever the body is
+			# when steering begins. So grabbing/holding never snaps the body across the
+			# pivot; it only turns as you turn the cursor. On a bar, also ease the
+			# radius out toward full reach so the arm straightens into a rigid spoke.
 			if chain["on_bar"]:
 				chain["pivot_r"] = move_toward(chain["pivot_r"], chain["pivot_r_max"], straighten_speed * delta)
-			var dir: Vector3 = to_body
-			var rel: Vector3 = _target_world - chain["anchor"]
-			if rel.length() > 1e-4:
-				dir = rel
-			if dir.length() < 1e-4:
-				dir = Vector3.UP
-			target += chain["anchor"] + dir.normalized() * chain["pivot_r"]
+			var cursor_rel: Vector3 = _target_world - chain["anchor"]
+			var has_cursor: bool = cursor_rel.length() > 0.1  # ignore a cursor on the pivot
+			var cursor_ang: float = atan2(cursor_rel.y, cursor_rel.x) if has_cursor else 0.0
+			if not chain["steering"]:
+				# Begin a steer session: pin the body's CURRENT angle as the start so
+				# there's no jump; the cursor only adds rotation from here on.
+				chain["steering"] = true
+				chain["steer_body_ang"] = atan2(to_body.y, to_body.x)
+				chain["steer_cursor_ang"] = cursor_ang
+				chain["steer_has_cursor"] = has_cursor
+			elif has_cursor:
+				# Add however far the cursor swept around the anchor since last frame.
+				if chain["steer_has_cursor"]:
+					chain["steer_body_ang"] += wrapf(cursor_ang - chain["steer_cursor_ang"], -PI, PI)
+				chain["steer_cursor_ang"] = cursor_ang
+				chain["steer_has_cursor"] = true
+			var ba: float = chain["steer_body_ang"]
+			target += chain["anchor"] + Vector3(cos(ba), sin(ba), 0.0) * chain["pivot_r"]
 			active += 1
 		else:
-			# PASSIVE: key up — no cursor steering. Gravity and momentum drive it; we
-			# only keep it on the rope (below) so the hand stays attached.
+			# PASSIVE: key up — no cursor steering. End the steer session (so the next
+			# one re-pins) and let gravity/momentum drive it via the rope (below).
+			chain["steering"] = false
 			passive.append(chain)
 
 	# An actively-steered grip wins: velocity-drive the torso toward the cursor spot.
