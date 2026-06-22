@@ -13,9 +13,11 @@ extends Node3D
 
 ## The two arm chains in the skeleton. Bone names come straight from the glb.
 ##   key    — hold to pose that (free) arm with the mouse; release and it freezes.
-##   button — hold that mouse button to GRAB whatever the palm is touching, and
-##            release to let go. Mapping is crossed: left click grabs with the
-##            RIGHT hand, right click grabs with the LEFT hand.
+##            While posed, a hand pressed on a surface pushes the body (see
+##            _push_off) — that's how you scoot around without grabbing.
+##   button — hold that mouse button to GRAB whatever the palm is touching, turning
+##            it into a pivot the body swings around; release to let go. Mapping is
+##            crossed: left click grabs with the RIGHT hand, right click the LEFT.
 const ARMS := [
 	{ "bicep": "bicep.l", "forearm": "forearm.l", "wrist": "wrist.l", "key": KEY_A, "button": MOUSE_BUTTON_RIGHT },
 	{ "bicep": "bicep.r", "forearm": "forearm.r", "wrist": "wrist.r", "key": KEY_D, "button": MOUSE_BUTTON_LEFT },
@@ -48,12 +50,24 @@ const ARMS := [
 ## through. Bump it up if hands still clip; down if the arm stops too far away.
 @export_range(0.0, 0.5, 0.01) var surface_offset: float = 0.1
 
-## While a hand is gripping, the body is hauled toward the mouse cursor (leashed
-## within arm's reach of the grip — that's what lets you pull/hoist yourself up).
-## `pull_strength` is how aggressively it closes the gap; `max_pull_speed` caps
-## the resulting speed so a far cursor doesn't yank you violently.
-@export_range(1.0, 40.0, 0.5) var pull_strength: float = 12.0
-@export var max_pull_speed: float = 16.0
+## GRAB = PIVOT. A gripping hand is pinned to its grab point and the body orbits
+## that point at a fixed radius (the arm length at the moment of grabbing). While
+## that arm's pose key is held the cursor sets the *angle* — sweep it around the
+## anchor and the body swings around it like a hand on a clock; release the key and
+## the body holds its current angle. `swing_strength` is how hard it chases that
+## angle; `max_swing_speed` caps the swing so a fast cursor flick doesn't teleport.
+@export_range(1.0, 40.0, 0.5) var swing_strength: float = 8.0
+@export var max_swing_speed: float = 16.0
+
+## ALWAYS-ON ARM PUSH. A *free* (posed, not gripping) arm whose hand is touching a
+## surface shoves the body when you rotate the arm — pressing into the surface
+## pushes you off along its normal, sweeping along it recoils you opposite the
+## sweep. This is how you scoot/crawl without grabbing. `push_gain` scales the
+## shove per unit of commanded hand motion; `max_push_speed` caps a single frame's
+## shove. Only arm *motion* pushes (a still hand resting on a wall does nothing),
+## so there's no jetpack — that holding job belongs to the grab.
+@export_range(0.0, 60.0, 0.5) var push_gain: float = 8
+@export var max_push_speed: float = 8.0
 
 var _skeleton: Skeleton3D
 var _camera: Camera3D
@@ -118,7 +132,8 @@ func _ready() -> void:
 			"button": arm["button"],
 			"grabbed": false,
 			"anchor": Vector3.ZERO, # world-space grab point while grabbed
-			"rope_max": 0.0,        # how far (world) the body may stray from anchor
+			"pivot_r": 0.0,         # body's orbit radius around the grab anchor
+			"prev_desired": null,   # last frame's commanded hand pos (world), for push
 		})
 
 	# Start the target somewhere sensible so the first frame doesn't lurch.
@@ -153,23 +168,119 @@ func _physics_process(delta: float) -> void:
 			_release(chain)
 
 		# 4. Solve the arm. A grabbed hand stays glued to its world anchor (so it
-		#    holds on as the body is hauled around); otherwise it tracks the mouse
-		#    while its pose key is held; otherwise it's left frozen in place.
+		#    holds on as the body swings around it); otherwise it tracks the mouse
+		#    while its pose key is held — and while tracking, a free hand that
+		#    touches a surface shoves the body (the always-on push); otherwise the
+		#    arm is left frozen in place.
 		if chain["grabbed"]:
 			_solve_arm(chain, to_skel * chain["anchor"])
+			chain["prev_desired"] = null
 		elif Input.is_key_pressed(chain["key"]):
 			_solve_arm(chain, mouse_target_local)
+			_push_off(chain)
+		else:
+			chain["prev_desired"] = null
 
-	# 5. Pull the body. For every gripping hand, the body wants to sit at the
-	#    cursor but is leashed within arm's reach of that grip; we drive the torso
-	#    toward the average of those leashed points. This is the climb/hoist.
-	_pull_body()
+	# 5. Swing the body. Every gripping hand is a pivot the body orbits at fixed
+	#    radius; the cursor sets the angle while that arm's pose key is held. We
+	#    drive the torso toward the average of those orbit points. This is the
+	#    climb/swing.
+	_pivot_body()
 
 
-## Try to grab whatever the palm is touching. Casts a short ray from the shoulder
-## out through the current hand position; if it lands on a collider within
-## `grab_margin`, we pin the torso there.
+## Try to grab whatever the palm is touching. Overlap-tests a small sphere
+## (radius `grab_margin`) at the hand tip; if it finds a solid collider, we pin
+## the torso's pivot to the hand. Only the palm can grab — because the test sits
+## at the tip, the forearm/elbow can't trigger a grab and fold the arm onto a wall.
 func _try_grab(chain: Dictionary) -> void:
+	if _torso == null:
+		return
+	var space := _skeleton.get_world_3d().direct_space_state
+	if space == null:
+		return
+
+	var hand: Vector3 = _skeleton.global_transform * _skeleton.get_bone_global_pose(chain["wrist"]).origin
+
+	# A sphere at the hand catches a surface the palm rests against from any angle.
+	# (Like the old ray it ignores Area3Ds, so only solid colliders can be grabbed.)
+	var shape := SphereShape3D.new()
+	shape.radius = grab_margin
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	query.transform = Transform3D(Basis(), hand)
+	query.exclude = _exclude
+	var hits := space.intersect_shape(query, 1)
+	if hits.is_empty():
+		return
+
+	# Pivot on the hand tip itself (not the surface point), so the arm stays
+	# extended and the body swings around the palm.
+	_grab(chain, hand, hits[0]["collider"])
+
+
+## Lock the hand onto `anchor_world` and turn it into a pivot. We don't use a
+## rigid joint; instead we remember the grab point and the body's distance to it
+## (the orbit radius), and _pivot_body() swings the torso around it.
+func _grab(chain: Dictionary, anchor_world: Vector3, _body: Object) -> void:
+	chain["anchor"] = anchor_world
+	chain["pivot_r"] = maxf(0.05, _torso.global_position.distance_to(anchor_world))
+	chain["grabbed"] = true
+
+
+## Let go. The torso keeps whatever velocity the pull gave it, so a well-timed
+## release flings you.
+func _release(chain: Dictionary) -> void:
+	chain["grabbed"] = false
+
+
+## Swing the torso around each gripping hand. The hand is a fixed pivot; the body
+## orbits it at the radius captured on grab, and the cursor's direction from the
+## anchor sets where on that circle the body wants to be. Sweep the cursor around
+## the anchor and the body rotates around it. With nothing gripping, gravity rules.
+func _pivot_body() -> void:
+	if _torso == null:
+		return
+
+	var target := Vector3.ZERO
+	var grips := 0
+	for chain in _chains:
+		if not chain["grabbed"]:
+			continue
+		# Body's spot on the orbit, out at the fixed radius. The cursor only steers
+		# the swing while this arm's pose key is held; with the key up the body
+		# holds its CURRENT angle, so a grip doesn't chase the mouse on its own.
+		var to_body: Vector3 = _torso.global_position - chain["anchor"]
+		var dir: Vector3 = to_body
+		if Input.is_key_pressed(chain["key"]):
+			var rel: Vector3 = _target_world - chain["anchor"]
+			if rel.length() > 1e-4:
+				dir = rel
+		if dir.length() < 1e-4:
+			dir = Vector3.UP
+		target += chain["anchor"] + dir.normalized() * chain["pivot_r"]
+		grips += 1
+
+	if grips == 0:
+		return # free fall / swing — leave the body to gravity.
+	target /= grips
+
+	# Velocity-drive toward the orbit spot: snappy and stable, and the body keeps
+	# this velocity on release for the fling.
+	var to_target := target - _torso.global_position
+	var vel := to_target * swing_strength
+	if vel.length() > max_swing_speed:
+		vel = vel.normalized() * max_swing_speed
+	vel.z = 0.0
+	_torso.linear_velocity = vel
+
+
+## Always-on arm push for a free (posed, non-gripping) arm. If the hand is pressed
+## against a surface, *rotating* the arm shoves the torso: the part of the
+## commanded hand motion the surface resists (into it, or sweeping along it) is
+## reflected back onto the body — push into a wall and you peel off its normal,
+## swipe along the ground and you scoot the opposite way. Lifting the hand away
+## from the surface, or holding it still, does nothing (no jetpack).
+func _push_off(chain: Dictionary) -> void:
 	if _torso == null:
 		return
 	var space := _skeleton.get_world_3d().direct_space_state
@@ -180,67 +291,45 @@ func _try_grab(chain: Dictionary) -> void:
 	var shoulder: Vector3 = xform * _skeleton.get_bone_global_pose(chain["bicep"]).origin
 	var hand: Vector3 = xform * _skeleton.get_bone_global_pose(chain["wrist"]).origin
 
-	var dir := (hand - shoulder)
-	if dir.length() < 1e-4:
+	# Where the arm is *commanded* to put the hand: the cursor, clamped to reach.
+	var world_scale := xform.basis.get_scale().x
+	var reach_max: float = (chain["l1"] + chain["l2"]) * max_reach * world_scale
+	var to_t := _target_world - shoulder
+	var dlen := to_t.length()
+	if dlen < 1e-4:
+		chain["prev_desired"] = null
 		return
-	dir = dir.normalized()
+	var desired := shoulder + (to_t / dlen) * minf(dlen, reach_max)
 
-	# Cast a touch past the hand so a palm resting flush on a surface still grabs.
-	var query := PhysicsRayQueryParameters3D.create(shoulder, hand + dir * grab_margin)
+	# Only a hand actually touching a surface can push. Cast shoulder -> commanded
+	# hand; a hit means the surface is in the way of where we're aiming.
+	var query := PhysicsRayQueryParameters3D.create(shoulder, desired)
 	query.exclude = _exclude
 	var hit := space.intersect_ray(query)
 	if hit.is_empty():
+		chain["prev_desired"] = null
+		return
+	var n: Vector3 = hit["normal"]
+
+	# How the commanded hand moved since last frame, with any motion *away* from
+	# the surface dropped — you can't push off a surface by pulling back from it.
+	var prev = chain["prev_desired"]
+	chain["prev_desired"] = desired
+	if prev == null:
+		return
+	var move: Vector3 = desired - prev
+	var away := move.dot(n)
+	if away > 0.0:
+		move -= n * away
+	if move.length() < 1e-6:
 		return
 
-	_grab(chain, hit["position"], hit["collider"])
-
-
-## Lock the hand onto `anchor_world`. We don't use a rigid joint (that would fix
-## the body at a constant distance and make hoisting impossible); instead we
-## remember the grab point and the arm's reach, and _pull_body() does the rest.
-func _grab(chain: Dictionary, anchor_world: Vector3, _body: Object) -> void:
-	var world_scale := _skeleton.global_transform.basis.get_scale().x
-	chain["anchor"] = anchor_world
-	chain["rope_max"] = (chain["l1"] + chain["l2"]) * max_reach * world_scale
-	chain["grabbed"] = true
-
-
-## Let go. The torso keeps whatever velocity the pull gave it, so a well-timed
-## release flings you.
-func _release(chain: Dictionary) -> void:
-	chain["grabbed"] = false
-
-
-## Haul the torso toward the cursor for each gripping hand, leashed within that
-## hand's reach of its grab point. With nothing gripping, physics (gravity) rules.
-func _pull_body() -> void:
-	if _torso == null:
-		return
-
-	var target := Vector3.ZERO
-	var grips := 0
-	for chain in _chains:
-		if not chain["grabbed"]:
-			continue
-		# Where the body wants to be: the cursor, but no farther than arm's reach
-		# from this grab point.
-		var rel: Vector3 = _target_world - chain["anchor"]
-		var rope: float = chain["rope_max"]
-		if rel.length() > rope:
-			rel = rel.normalized() * rope
-		target += chain["anchor"] + rel
-		grips += 1
-
-	if grips == 0:
-		return # free fall / swing — leave the body to gravity.
-	target /= grips
-
-	# Velocity-drive toward the target: snappy and stable, and the body keeps this
-	# velocity on release for the fling.
-	var to_target := target - _torso.global_position
-	var vel := to_target * pull_strength
-	if vel.length() > max_pull_speed:
-		vel = vel.normalized() * max_pull_speed
+	# The body recoils opposite that resisted motion.
+	var push := -move * push_gain
+	if push.length() > max_push_speed:
+		push = push.normalized() * max_push_speed
+	var vel: Vector3 = _torso.linear_velocity + push
+	vel.z = 0.0
 	_torso.linear_velocity = vel
 
 

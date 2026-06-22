@@ -12,7 +12,7 @@ Physics rage/climbing game (Getting Over It / Only Up). A torso with two arms; t
 | Hold **Right click** | grab with the **left** hand |
 | **R** | restart scene |
 
-Released arms freeze in place. Grabbing locks the hand to the contact point; while gripping, dragging the mouse hauls the body toward the cursor (leashed within arm's reach) — this is the climb/hoist. Releasing keeps the body's velocity (fling).
+Released arms freeze in place. **Arm collision is always on:** a posed (non-gripping) arm whose hand presses against a surface shoves the torso when you *rotate* the arm — pressing into the surface peels you off its normal, sweeping along it scoots you the opposite way. That's how you crawl/scoot without grabbing (a still hand does nothing — no jetpack). **Grabbing is a pivot:** the hand pins to the contact point and the body orbits it at a fixed radius (the arm length at grab time). The cursor steers that swing only while the grabbed arm's pose key (A/D) is also held — with the key up the body holds its current angle instead of chasing the mouse. Releasing the grab keeps the body's velocity (fling).
 
 Input polling is raw key/mouse-button (`KEY_A`/`KEY_D`, `MOUSE_BUTTON_LEFT`/`RIGHT`) except `restart`, which uses the `restart` input action. The `grab_left`/`grab_right` input actions exist in project settings but are currently unused.
 
@@ -40,18 +40,19 @@ Main (Node3D)                       scenes/main.tscn
 - Analytic 2-bone IK per arm; only bone *rotations* are set (lengths from rest), so aiming a bone's +Y at the next joint moves the chain.
 - Mouse target = mouse ray projected onto the camera-facing plane through the shoulders.
 - Reach is clamped to the nearest obstacle via a raycast from shoulder along the arm (excludes the torso; `Area3D`s don't block) so hands don't clip through colliders.
-- Grab: raycast shoulder→palm (+`grab_margin`); on hit, lock the hand's IK target to the contact point. **No physics joint** — the hold is the IK glue plus the pull below.
-- Pull/hoist (`_pull_body`): for each gripping hand, target = cursor leashed within arm reach of the grab point; the torso's `linear_velocity` is driven toward the average target (`pull_strength`, capped by `max_pull_speed`).
+- Push (`_push_off`): every frame a posed free arm whose hand touches a surface (shoulder→cursor raycast hits) reflects the surface-resisted part of the commanded hand motion back onto the torso's `linear_velocity` (`push_gain`, per-frame add capped by `max_push_speed`). Motion *away* from the surface is dropped, and a motionless hand adds nothing.
+- Grab: raycast shoulder→palm (+`grab_margin`); on hit, lock the hand's IK target to the contact point and record the torso→anchor distance as the orbit radius. **No physics joint** — the hold is the IK glue plus the pivot below.
+- Pivot/swing (`_pivot_body`): for each gripping hand, target = the point at orbit radius from the anchor in the *direction* of the cursor; the torso's `linear_velocity` is driven toward the average target (`swing_strength`, capped by `max_swing_speed`). The body orbits the grab point; the cursor sets the angle.
 
-Exports: `max_reach 0.98`, `elbow_pole (0,-0.2,1)`, `follow_speed 12`, `grab_margin 0.25`, `pull_strength 12`, `max_pull_speed 16`.
+Exports: `max_reach 0.98`, `elbow_pole (0,-0.2,1)`, `follow_speed 12`, `grab_margin 0.25`, `surface_offset 0.1`, `swing_strength 8`, `max_swing_speed 16`, `push_gain 8`, `max_push_speed 8`.
 
 **camera_follow.gd** (`Camera3D`) — follows the Player on X/Y, holds Z (depth) constant, preserves the authored offset. `follow_speed 8` (0 = snap).
 
 ## Not yet built
 
 - No goal, level geometry beyond the flat ground, HUD, hazards, or named collision layers (collision is default; the arm raycast just excludes the torso).
-- No free pendulum *swing* while gripping (the grip is a controllable pull, not a rigid pivot).
-- Pull direction is "body follows cursor"; inverting to a rope-style pull is a sign flip.
+- The grip pivot is cursor-driven, not a free gravity pendulum — sweeping the cursor sets the swing angle; the body doesn't passively swing under gravity while held (velocity is overwritten toward the orbit point each frame).
+- The push is velocity-additive recoil, not a true contact force — it can't *hold* you against gravity (that's the grab's job); it only scoots you while the arm is in motion.
 
 ## Feel goals
 
