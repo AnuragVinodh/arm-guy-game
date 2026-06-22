@@ -56,8 +56,16 @@ const ARMS := [
 ## anchor and the body swings around it like a hand on a clock; release the key and
 ## the body holds its current angle. `swing_strength` is how hard it chases that
 ## angle; `max_swing_speed` caps the swing so a fast cursor flick doesn't teleport.
-@export_range(1.0, 40.0, 0.5) var swing_strength: float = 8.0
+@export_range(1.0, 40.0, 0.5) var swing_strength: float = 18.0
 @export var max_swing_speed: float = 16.0
+
+## STRAIGHTEN-ON-GRIP. While a grabbed arm's pose key is held, its orbit radius
+## eases out toward the arm's full reach (`straighten_speed`, world units/sec) so a
+## folded arm pulls taut into a straight, rigid spoke — that's what keeps the swing
+## smooth instead of the elbow re-folding at different angles as you go around.
+## Capped per-grab to the arm's actual slack so the hand can't detach; key up
+## freezes the current radius.
+@export_range(0.0, 40.0, 0.5) var straighten_speed: float = 18.5
 
 ## RELEASE FLING. Let go mid-swing and the body launches tangentially at the speed
 ## it was orbiting (v = ω·r), in the direction it was rotating — wind up a swing,
@@ -143,6 +151,8 @@ func _ready() -> void:
 			"grabbed": false,
 			"anchor": Vector3.ZERO, # world-space grab point while grabbed
 			"pivot_r": 0.0,         # body's orbit radius around the grab anchor
+			"pivot_r_max": 0.0,     # radius the arm straightens out to while gripping
+			"on_bar": false,        # grabbed a Bar? (only bars straighten the arm out)
 			"prev_desired": null,   # last frame's commanded hand pos (world), for push
 			"swing_angle": 0.0,     # body's angle around the anchor (play plane), for fling
 			"swing_omega": 0.0,     # smoothed angular speed of the swing, rad/s
@@ -242,10 +252,22 @@ func _try_grab(chain: Dictionary) -> void:
 ## Lock the hand onto `anchor_world` and turn it into a pivot. We don't use a
 ## rigid joint; instead we remember the grab point and the body's distance to it
 ## (the orbit radius), and _pivot_body() swings the torso around it.
-func _grab(chain: Dictionary, anchor_world: Vector3, _body: Object) -> void:
+func _grab(chain: Dictionary, anchor_world: Vector3, body: Object) -> void:
 	chain["anchor"] = anchor_world
 	chain["pivot_r"] = maxf(0.05, _torso.global_position.distance_to(anchor_world))
 	chain["grabbed"] = true
+	# Only a Bar straightens out. On flat ground the straighten would drive the arm
+	# into the surface, fighting the reach-clamp and making the body spasm — so the
+	# orbit radius stays fixed for non-bar grabs.
+	chain["on_bar"] = body != null and body.has_method("axis_center")
+	# How far the radius may straighten out: extend only by the arm's current slack
+	# (full reach from the shoulder minus how extended it already is), so pulling the
+	# arm taut into a spoke can't yank the hand off the anchor.
+	var world_scale: float = _skeleton.global_transform.basis.get_scale().x
+	var reach_max: float = (chain["l1"] + chain["l2"]) * max_reach * world_scale
+	var shoulder: Vector3 = _skeleton.global_transform * _skeleton.get_bone_global_pose(chain["bicep"]).origin
+	var slack: float = maxf(0.0, reach_max - shoulder.distance_to(anchor_world))
+	chain["pivot_r_max"] = chain["pivot_r"] + slack * 0.95
 	# Seed swing tracking from the current angle so the first frame reads ~0 spin
 	# (not a spike) — the fling builds up only as you actually start swinging.
 	var rel := _torso.global_position - anchor_world
@@ -298,6 +320,12 @@ func _pivot_body(delta: float) -> void:
 
 		var dir: Vector3 = to_body
 		if Input.is_key_pressed(chain["key"]):
+			# Hold to steer the swing AND (on a bar only) pull the arm taut: ease the
+			# orbit radius out toward full reach so the arm straightens into a rigid
+			# spoke (the smooth swing). Skipped off-bar to avoid jamming the arm into
+			# a flat surface. Key up freezes the radius at its current value.
+			if chain["on_bar"]:
+				chain["pivot_r"] = move_toward(chain["pivot_r"], chain["pivot_r_max"], straighten_speed * delta)
 			var rel: Vector3 = _target_world - chain["anchor"]
 			if rel.length() > 1e-4:
 				dir = rel
