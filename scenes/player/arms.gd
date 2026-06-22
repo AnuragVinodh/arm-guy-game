@@ -292,22 +292,22 @@ func _release(chain: Dictionary) -> void:
 	_torso.linear_velocity = fling
 
 
-## Swing the torso around each gripping hand. The hand is a fixed pivot; the body
-## orbits it at the radius captured on grab, and the cursor's direction from the
-## anchor sets where on that circle the body wants to be. Sweep the cursor around
-## the anchor and the body rotates around it. With nothing gripping, gravity rules.
+## Swing the torso around each gripping hand. The hand is a fixed pivot the body
+## orbits at the grab radius. Holding the arm's pose key actively steers the swing
+## toward the cursor; with the key up the grip goes passive — gravity and the body's
+## own momentum swing it as a free pendulum on the arm (we just hold it to the rope),
+## so letting go of A/D hands control back to physics instead of freezing the body.
+## With nothing gripping, gravity rules outright.
 func _pivot_body(delta: float) -> void:
 	if _torso == null:
 		return
 
 	var target := Vector3.ZERO
-	var grips := 0
+	var active := 0
+	var passive: Array = []
 	for chain in _chains:
 		if not chain["grabbed"]:
 			continue
-		# Body's spot on the orbit, out at the fixed radius. The cursor only steers
-		# the swing while this arm's pose key is held; with the key up the body
-		# holds its CURRENT angle, so a grip doesn't chase the mouse on its own.
 		var to_body: Vector3 = _torso.global_position - chain["anchor"]
 
 		# Track how fast the body is sweeping around the anchor (in the play plane),
@@ -318,34 +318,62 @@ func _pivot_body(delta: float) -> void:
 		var inst_omega := d_ang / maxf(delta, 1e-5)
 		chain["swing_omega"] = lerpf(chain["swing_omega"], inst_omega, clampf(spin_smooth * delta, 0.0, 1.0))
 
-		var dir: Vector3 = to_body
 		if Input.is_key_pressed(chain["key"]):
-			# Hold to steer the swing AND (on a bar only) pull the arm taut: ease the
-			# orbit radius out toward full reach so the arm straightens into a rigid
-			# spoke (the smooth swing). Skipped off-bar to avoid jamming the arm into
-			# a flat surface. Key up freezes the radius at its current value.
+			# ACTIVE: the cursor steers the swing. On a bar, also ease the radius out
+			# toward full reach so the arm straightens into a rigid spoke.
 			if chain["on_bar"]:
 				chain["pivot_r"] = move_toward(chain["pivot_r"], chain["pivot_r_max"], straighten_speed * delta)
+			var dir: Vector3 = to_body
 			var rel: Vector3 = _target_world - chain["anchor"]
 			if rel.length() > 1e-4:
 				dir = rel
-		if dir.length() < 1e-4:
-			dir = Vector3.UP
-		target += chain["anchor"] + dir.normalized() * chain["pivot_r"]
-		grips += 1
+			if dir.length() < 1e-4:
+				dir = Vector3.UP
+			target += chain["anchor"] + dir.normalized() * chain["pivot_r"]
+			active += 1
+		else:
+			# PASSIVE: key up — no cursor steering. Gravity and momentum drive it; we
+			# only keep it on the rope (below) so the hand stays attached.
+			passive.append(chain)
 
-	if grips == 0:
-		return # free fall / swing — leave the body to gravity.
-	target /= grips
+	# An actively-steered grip wins: velocity-drive the torso toward the cursor spot.
+	# (The release fling is computed separately in _release from the tracked spin.)
+	if active > 0:
+		target /= active
+		var to_target := target - _torso.global_position
+		var vel := to_target * swing_strength
+		if vel.length() > max_swing_speed:
+			vel = vel.normalized() * max_swing_speed
+		vel.z = 0.0
+		_torso.linear_velocity = vel
+		return
 
-	# Velocity-drive toward the orbit spot: snappy and stable. (The release fling is
-	# computed separately in _release from the tracked angular speed, not this vel.)
-	var to_target := target - _torso.global_position
-	var vel := to_target * swing_strength
-	if vel.length() > max_swing_speed:
-		vel = vel.normalized() * max_swing_speed
-	vel.z = 0.0
-	_torso.linear_velocity = vel
+	# Otherwise every grip is passive: let the body swing/fall as a pendulum on the
+	# rope instead of freezing it in place.
+	for chain in passive:
+		_constrain_to_rope(chain, delta)
+
+
+## Keep a passively-gripping body on its rope (the orbit radius) WITHOUT driving it:
+## cancel the velocity along the arm and nudge any drift back onto the circle, so
+## gravity and the body's own momentum carry it as a free pendulum around the anchor.
+## This is what makes a key-up grip swing under gravity instead of freezing.
+func _constrain_to_rope(chain: Dictionary, delta: float) -> void:
+	var rel: Vector3 = _torso.global_position - chain["anchor"]
+	rel.z = 0.0
+	var r := rel.length()
+	if r < 1e-4:
+		return
+	var n := rel / r  # radial (along-the-arm) direction
+	var v: Vector3 = _torso.linear_velocity
+	# Fixed-length spoke: drop the radial part so the body can only move tangentially
+	# (gravity's pull along the arm turns into swing, not stretch).
+	v -= n * v.dot(n)
+	# Position fix via velocity: pull the body back onto the circle if it has drifted,
+	# so the hand neither detaches nor creeps toward the anchor.
+	v += n * ((chain["pivot_r"] - r) / maxf(delta, 1e-5))
+	v.z = 0.0
+	_torso.linear_velocity = v
 
 
 ## Always-on arm push for a free (posed, non-gripping) arm. If the hand is pressed
