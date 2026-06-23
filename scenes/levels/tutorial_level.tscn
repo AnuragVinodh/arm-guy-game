@@ -39,6 +39,16 @@ adjustment_enabled = true
 adjustment_contrast = 1.06
 adjustment_saturation = 1.12
 
+[sub_resource type="StandardMaterial3D" id="Mat_wall"]
+albedo_color = Color(0.4, 0.4, 0.45, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="Box_A"]
+size = Vector3(1, 10, 6)
+
+[sub_resource type="BoxShape3D" id="Shp_A"]
+size = Vector3(1, 10, 6)
+
 [sub_resource type="ShaderMaterial" id="Mat_ground"]
 render_priority = 0
 shader = ExtResource("4_grid")
@@ -52,16 +62,6 @@ size = Vector3(57.5, 1, 6)
 
 [sub_resource type="BoxShape3D" id="Shp_B"]
 size = Vector3(57.5, 1, 6)
-
-[sub_resource type="StandardMaterial3D" id="Mat_wall"]
-albedo_color = Color(0.4, 0.4, 0.45, 1)
-roughness = 0.9
-
-[sub_resource type="BoxMesh" id="Box_A"]
-size = Vector3(1, 10, 6)
-
-[sub_resource type="BoxShape3D" id="Shp_A"]
-size = Vector3(1, 10, 6)
 
 [sub_resource type="BoxMesh" id="Box_G"]
 size = Vector3(3, 1.5, 4)
@@ -191,6 +191,16 @@ light_color = Color(0.82, 0.88, 1, 1)
 light_energy = 0.7
 
 [node name="Terrain" type="Node3D" parent="."]
+
+[node name="Wall1" type="StaticBody3D" parent="Terrain"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.5, 5, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Terrain/Wall1"]
+material_override = SubResource("Mat_wall")
+mesh = SubResource("Box_A")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Terrain/Wall1"]
+shape = SubResource("Shp_A")
 
 [node name="StartGround" type="StaticBody3D" parent="Terrain"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.75, -0.5, 0)
@@ -522,6 +532,6 @@ outline_size = 20
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.99671596, -0.08097778, 0, 0.08097778, 0.99671596, -2.4981704, 6.6275434, 12.481221)
+transform = Transform3D(1, 0, 0, 0, 0.98083216, 0.19485459, 0, -0.19485459, 0.98083216, -0.15624952, 8.958995, 12.481221)
 script = ExtResource("2_camera")
 target_path = NodePath("../Player")
