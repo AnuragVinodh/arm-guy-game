@@ -12,19 +12,23 @@ extends Node3D
 ## Think of it as a 2-bone pendulum hanging off each shoulder, chasing a target.
 
 ## The two arm chains in the skeleton. Bone names come straight from the glb.
-##   key    — hold to pose that (free) arm with the mouse; release and it freezes.
-##            While posed, a hand pressed on a surface pushes the body (see
+## KEYBOARD-ONLY control scheme (no mouse): each arm is rotated about its shoulder
+## like a clock hand by two keys, and grabs with a Shift key.
+##   key_cw / key_ccw — hold to swing that arm clockwise / counter-clockwise (in the
+##            X-Y play plane). A free arm's hand sweeps along an arc at full reach;
+##            while sweeping, a hand pressed on a surface pushes the body (see
 ##            _push_off) — that's how you scoot around without grabbing.
-##   button — hold that mouse button to GRAB whatever the palm is touching, turning
-##            it into a pivot the body swings around; release to let go. Each arm's
-##            grab button matches its pose key's side: A + left click = left arm,
-##            D + right click = right arm.
+##   grab_side — which Shift key GRABS for this arm (left Shift = left arm, right
+##            Shift = right arm). A grab turns the hand into a pivot the body swings
+##            around; while gripping, the same rotate keys steer the swing. We can't
+##            tell the two Shifts apart with raw polling (same keycode), so they're
+##            tracked by key-event location in _input — see `_grab_held`.
 ## `roll` flips the bone's twist about its own +Y (1 = as-is, -1 = 180° flipped). The
 ## left arm's mesh is a mirror of the right, but the IK orients both with the same
 ## world roll reference, so the mirrored side comes out upside-down — flip it back.
 const ARMS := [
-	{ "bicep": "bicep.l", "forearm": "forearm.l", "wrist": "wrist.l", "key": KEY_A, "button": MOUSE_BUTTON_LEFT, "roll": -1.0 },
-	{ "bicep": "bicep.r", "forearm": "forearm.r", "wrist": "wrist.r", "key": KEY_D, "button": MOUSE_BUTTON_RIGHT, "roll": 1.0 },
+	{ "bicep": "bicep.l", "forearm": "forearm.l", "wrist": "wrist.l", "key_cw": KEY_D, "key_ccw": KEY_A, "roll": -1.0 },
+	{ "bicep": "bicep.r", "forearm": "forearm.r", "wrist": "wrist.r", "key_cw": KEY_APOSTROPHE, "key_ccw": KEY_L, "roll": 1.0 },
 ]
 
 ## How far the hand can reach, as a fraction of the full arm length. Keeping this
@@ -42,8 +46,10 @@ const ARMS := [
 ## plane and produce exactly the rotation we're avoiding.
 @export var elbow_pole: Vector3 = Vector3(0.0, 0.0, 1.0)
 
-## Smoothing — higher = snappier, lower = floppier / more pendulum-like.
-@export_range(1.0, 40.0, 0.5) var follow_speed: float = 12.0
+## How fast the rotate keys swing an arm about its shoulder, radians/sec. This is the
+## single knob for "how quick the arms move": it spins a free arm's pose AND steers the
+## body's swing while gripping. Higher = snappier/twitchier, lower = slow and deliberate.
+@export_range(0.5, 12.0, 0.1) var rotate_speed: float = 3.0
 
 ## How close (world units) the palm must be to a surface to be able to grab it.
 @export_range(0.0, 2.0, 0.05) var grab_margin: float = 0.25
@@ -63,23 +69,16 @@ const ARMS := [
 @export_range(0.0, 0.3, 0.01) var arm_thickness: float = 0.06
 
 ## GRAB = PIVOT. A gripping hand is pinned to its grab point and the body orbits
-## that point. While that arm's pose key is held the cursor steers like a steering
-## wheel — rotating it around the anchor turns the body the SAME way, starting from
-## wherever the body is when steering begins (so a grab never snaps the body across
-## the pivot). Release the key and the grip goes passive (free pendulum).
-## `swing_strength` is how hard it chases the steered angle; `max_swing_speed` caps
-## the swing so a fast cursor flick doesn't teleport.
+## that point. While that arm's rotate keys are held they steer the swing: each key
+## turns the body around the anchor the SAME way that key would swing a free arm,
+## starting from wherever the body is when steering begins (so a grab never snaps the
+## body across the pivot). Hold the grab Shift with no rotate key and the grip goes
+## passive (free pendulum). `swing_strength` is how hard it chases the steered angle;
+## `max_swing_speed` caps the swing so it can't teleport.
 @export_range(1.0, 40.0, 0.5) var swing_strength: float = 18.0
 @export var max_swing_speed: float = 16.0
 
-## How far (world units) the cursor must sit from the grab pivot before it steers.
-## Inside this radius a tiny mouse move sweeps a huge angle around the pivot (and
-## crossing the pivot flips it ~180°), which would spin the body — so within it the
-## swing just holds its current angle, ignoring how close the cursor is. Bigger =
-## a wider neutral zone around the pivot.
-@export_range(0.0, 2.0, 0.05) var steer_deadzone: float = 0.35
-
-## STRAIGHTEN-ON-GRIP. While a grabbed arm's pose key is held, its orbit radius
+## STRAIGHTEN-ON-GRIP. While a grabbed arm's rotate key is held, its orbit radius
 ## eases out toward the arm's full reach (`straighten_speed`, world units/sec) so a
 ## folded arm pulls taut into a straight, rigid spoke — that's what keeps the swing
 ## smooth instead of the elbow re-folding at different angles as you go around.
@@ -120,7 +119,11 @@ const ARMS := [
 @export var debug_show_pivot: bool = true
 
 var _skeleton: Skeleton3D
-var _camera: Camera3D
+
+## Grab held per arm (index matches _chains: 0 = left, 1 = right). Driven from key
+## events in _input because the two Shift keys share one keycode and can only be told
+## apart by an InputEventKey's `location` — raw Input polling can't distinguish them.
+var _grab_held := [false, false]
 
 ## One debug marker per arm (same index as _chains); shown at the anchor while grabbed.
 var _pivot_markers: Array[MeshInstance3D] = []
@@ -138,9 +141,6 @@ var _exclude: Array[RID] = []
 ##   root                              : skeleton-space position of the shoulder
 var _chains: Array = []
 
-## The world-space point both hands are currently reaching toward (smoothed).
-var _target_world: Vector3
-
 
 func _ready() -> void:
 	# arms.gd is attached to the glb instance root; the Skeleton3D is somewhere
@@ -150,8 +150,6 @@ func _ready() -> void:
 		push_error("arms.gd: no Skeleton3D found under %s" % name)
 		set_physics_process(false)
 		return
-
-	_camera = get_viewport().get_camera_3d()
 
 	# Walk up to the owning physics body (the player torso) and exclude it from
 	# the reach-raycast, so an arm doesn't stop short on its own collision box.
@@ -181,9 +179,10 @@ func _ready() -> void:
 			"wrist": wrist_idx,
 			"l1": l1,
 			"l2": l2,
-			"key": arm["key"],
-			"button": arm["button"],
+			"key_cw": arm["key_cw"],   # hold: swing this arm clockwise (play plane)
+			"key_ccw": arm["key_ccw"], # hold: swing this arm counter-clockwise
 			"roll": arm["roll"],    # +1 / -1: flips the arm's twist (mirrored-rig fix)
+			"aim_angle": -PI / 2.0, # free-arm pose: direction the arm points (rad, X-Y); start straight down
 			"grabbed": false,
 			"anchor": Vector3.ZERO, # world-space grab point while grabbed
 			"pivot_r": 0.0,         # body's orbit radius around the grab anchor
@@ -192,14 +191,9 @@ func _ready() -> void:
 			"prev_desired": null,   # last frame's commanded hand pos (world), for push
 			"swing_angle": 0.0,     # body's angle around the anchor (play plane), for fling
 			"swing_omega": 0.0,     # smoothed angular speed of the swing, rad/s
-			"steering": false,        # mid active-steer session? (relative cursor steering)
+			"steering": false,        # mid active-steer session? (relative key steering)
 			"steer_body_ang": 0.0,    # body's orbit angle the current steer started from (rad)
-			"steer_cursor_ang": 0.0,  # last cursor angle around the anchor (rad)
-			"steer_has_cursor": false,# was the cursor off the pivot last steer frame?
 		})
-
-	# Start the target somewhere sensible so the first frame doesn't lurch.
-	_target_world = global_position
 
 	_build_pivot_markers()
 
@@ -225,58 +219,83 @@ func _build_pivot_markers() -> void:
 		_pivot_markers.append(m)
 
 
+## Track the two Shift keys separately. Raw polling (Input.is_key_pressed) can't tell
+## left Shift from right Shift — they report the same keycode — so we read key events
+## and key off the event's physical `location` instead, latching a per-arm grab flag.
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.keycode == KEY_SHIFT:
+		match event.location:
+			KEY_LOCATION_LEFT:
+				_grab_held[0] = event.pressed
+			KEY_LOCATION_RIGHT:
+				_grab_held[1] = event.pressed
+
+
+## Net rotation command for an arm this frame: -1 clockwise, +1 counter-clockwise,
+## 0 if neither (or both) of its rotate keys are held. Shared by free-arm posing and
+## grabbed-arm steering, so both swing the same way for the same key.
+func _rotate_input(chain: Dictionary) -> float:
+	var s := 0.0
+	if Input.is_key_pressed(chain["key_cw"]):
+		s -= 1.0
+	if Input.is_key_pressed(chain["key_ccw"]):
+		s += 1.0
+	return s
+
+
 func _physics_process(delta: float) -> void:
 	if _skeleton == null or _chains.is_empty():
 		return
-	if _camera == null:
-		_camera = get_viewport().get_camera_3d()
-		if _camera == null:
-			return
 
-	# 1. Turn the mouse cursor into a world-space target, then ease toward it.
-	var goal := _mouse_target()
-	var t: float = clamp(follow_speed * delta, 0.0, 1.0)
-	_target_world = _target_world.lerp(goal, t)
-
-	# 2. Targets/poses for the skeleton live in skeleton-LOCAL space, so convert
-	#    world points into that space. The mouse target is shared by both arms;
-	#    a grabbed arm uses its own fixed anchor instead.
+	# Poses for the skeleton live in skeleton-LOCAL space, so convert world points
+	# into that space. A grabbed arm aims at its fixed anchor; a free arm aims along
+	# its own swing angle (each arm has its own — there's no shared mouse target now).
 	var to_skel := _skeleton.global_transform.affine_inverse()
-	var mouse_target_local := to_skel * _target_world
+	var world_scale: float = _skeleton.global_transform.basis.get_scale().x
 
-	for chain in _chains:
-		# 3. Grab / release: hold the button to grip, release to let go.
-		var holding: bool = Input.is_mouse_button_pressed(chain["button"])
+	for i in _chains.size():
+		var chain: Dictionary = _chains[i]
+
+		# 1. Grab / release: hold this arm's Shift to grip, release to let go.
+		var holding: bool = _grab_held[i]
 		if holding and not chain["grabbed"]:
 			_try_grab(chain)
 		elif not holding and chain["grabbed"]:
 			_release(chain)
 
-		# 4. Solve the arm. A grabbed hand stays glued to its world anchor (so it
-		#    holds on as the body swings around it); otherwise it tracks the mouse
-		#    while its pose key is held — and while tracking, a free hand that
-		#    touches a surface shoves the body (the always-on push); otherwise the
-		#    arm is left frozen in place.
+		# 2. Solve the arm. A grabbed hand stays glued to its world anchor (so it holds
+		#    on as the body swings around it); otherwise the rotate keys swing it around
+		#    the shoulder and the hand reaches to full extent along that angle — and
+		#    while sweeping, a free hand touching a surface shoves the body (the
+		#    always-on push).
 		if chain["grabbed"]:
 			# Don't clamp the reach while gripping: the hand must stay glued to the
 			# anchor, and the surface-avoidance raycast would otherwise pull it off and
 			# make the elbow fold/unfold as the body orbits (clunky). Clipping is fine
-			# here — you're holding on.
+			# here — you're holding on. Keep aim_angle synced to the live grip direction
+			# so releasing doesn't snap the pose.
+			var shoulder: Vector3 = _skeleton.global_transform * _skeleton.get_bone_global_pose(chain["bicep"]).origin
+			var sa: Vector3 = chain["anchor"] - shoulder
+			chain["aim_angle"] = atan2(sa.y, sa.x)
 			_solve_arm(chain, to_skel * chain["anchor"], false)
 			chain["prev_desired"] = null
-		elif Input.is_key_pressed(chain["key"]):
-			_solve_arm(chain, mouse_target_local)
-			_push_off(chain)
 		else:
-			chain["prev_desired"] = null
+			# Free arm: integrate the rotate keys into this arm's pose angle, then point
+			# the hand to full reach along it so the arm sweeps an arc like a clock hand.
+			chain["aim_angle"] += _rotate_input(chain) * rotate_speed * delta
+			var shoulder: Vector3 = _skeleton.global_transform * _skeleton.get_bone_global_pose(chain["bicep"]).origin
+			var dir := Vector3(cos(chain["aim_angle"]), sin(chain["aim_angle"]), 0.0)
+			var reach_max: float = (chain["l1"] + chain["l2"]) * max_reach * world_scale
+			_solve_arm(chain, to_skel * (shoulder + dir * reach_max))
+			_push_off(chain)
 
-	# 5. Swing the body. Every gripping hand is a pivot the body orbits at fixed
-	#    radius; the cursor sets the angle while that arm's pose key is held. We
+	# 3. Swing the body. Every gripping hand is a pivot the body orbits at fixed
+	#    radius; the rotate keys set the angle while that arm's keys are held. We
 	#    drive the torso toward the average of those orbit points. This is the
 	#    climb/swing.
 	_pivot_body(delta)
 
-	# 6. Debug: park each pivot marker on its grab anchor (or hide it when free).
+	# 4. Debug: park each pivot marker on its grab anchor (or hide it when free).
 	for i in _chains.size():
 		var m: MeshInstance3D = _pivot_markers[i]
 		if debug_show_pivot and _chains[i]["grabbed"]:
@@ -375,11 +394,11 @@ func _release(chain: Dictionary) -> void:
 
 
 ## Swing the torso around each gripping hand. The hand is a fixed pivot the body
-## orbits at the grab radius. Holding the arm's pose key actively steers the swing
-## toward the cursor; with the key up the grip goes passive — gravity and the body's
+## orbits at the grab radius. Holding the arm's rotate keys actively steers the swing
+## around the anchor; with no rotate key the grip goes passive — gravity and the body's
 ## own momentum swing it as a free pendulum on the arm (we just hold it to the rope),
-## so letting go of A/D hands control back to physics instead of freezing the body.
-## With nothing gripping, gravity rules outright.
+## so letting go of the rotate keys hands control back to physics instead of freezing
+## the body. With nothing gripping, gravity rules outright.
 func _pivot_body(delta: float) -> void:
 	if _torso == null:
 		return
@@ -407,41 +426,29 @@ func _pivot_body(delta: float) -> void:
 		# the live shoulder→anchor distance, so the elbow can't re-fold as the body spins.
 		_straighten(chain, delta)
 
-		if Input.is_key_pressed(chain["key"]):
-			# ACTIVE: the cursor steers like a steering wheel — rotating it around the
-			# anchor rotates the body the SAME way, starting from wherever the body is
-			# when steering begins, so grabbing/holding never snaps the body across the
-			# pivot. A flat grab records its surface normal + point so the drive below
-			# can't shove the torso into that surface (the anti-spasm guard).
+		var spin := _rotate_input(chain)
+		if spin != 0.0:
+			# ACTIVE: the rotate keys turn the body around the anchor the SAME way they'd
+			# swing a free arm, starting from wherever the body is when steering begins, so
+			# grabbing/holding never snaps the body across the pivot. A flat grab records
+			# its surface normal + point so the drive below can't shove the torso into that
+			# surface (the anti-spasm guard).
 			if not chain["on_bar"]:
 				block_normal += chain["grab_normal"]
 				block_point += chain["anchor"]
 				block_count += 1
 			# Begin a steer session on the first active frame: pin the body's CURRENT
-			# angle so there's no jump; the cursor only adds rotation from here.
+			# angle so there's no jump; the keys only add rotation from here.
 			if not chain["steering"]:
 				chain["steering"] = true
 				chain["steer_body_ang"] = atan2(to_body.y, to_body.x)
-				chain["steer_has_cursor"] = false
-			# Steer only when the cursor is clear of the pivot. Inside steer_deadzone the
-			# angle is hypersensitive (and flips ~180° across the pivot), so we hold the
-			# angle and DROP the reference — re-pinning when the cursor leaves the zone so
-			# crossing it doesn't whip the body. This removes the cursor-distance spin.
-			var cursor_rel: Vector3 = _target_world - chain["anchor"]
-			if cursor_rel.length() > steer_deadzone:
-				var cursor_ang: float = atan2(cursor_rel.y, cursor_rel.x)
-				if chain["steer_has_cursor"]:
-					chain["steer_body_ang"] += wrapf(cursor_ang - chain["steer_cursor_ang"], -PI, PI)
-				chain["steer_cursor_ang"] = cursor_ang
-				chain["steer_has_cursor"] = true
-			else:
-				chain["steer_has_cursor"] = false
+			chain["steer_body_ang"] += spin * rotate_speed * delta
 			var ba: float = chain["steer_body_ang"]
 			target += chain["anchor"] + Vector3(cos(ba), sin(ba), 0.0) * chain["pivot_r"]
 			active += 1
 		else:
-			# PASSIVE: key up — no cursor steering. End the steer session (so the next
-			# one re-pins) and let gravity/momentum drive it via the rope (below).
+			# PASSIVE: gripping but no rotate key — end the steer session (so the next one
+			# re-pins) and let gravity/momentum drive it via the rope (below).
 			chain["steering"] = false
 			passive.append(chain)
 
@@ -571,15 +578,12 @@ func _push_off(chain: Dictionary) -> void:
 	var shoulder: Vector3 = xform * _skeleton.get_bone_global_pose(chain["bicep"]).origin
 	var hand: Vector3 = xform * _skeleton.get_bone_global_pose(chain["wrist"]).origin
 
-	# Where the arm is *commanded* to put the hand: the cursor, clamped to reach.
+	# Where the arm is *commanded* to put the hand: full reach along this arm's swing
+	# angle (the same target the IK solves toward for a free arm).
 	var world_scale := xform.basis.get_scale().x
 	var reach_max: float = (chain["l1"] + chain["l2"]) * max_reach * world_scale
-	var to_t := _target_world - shoulder
-	var dlen := to_t.length()
-	if dlen < 1e-4:
-		chain["prev_desired"] = null
-		return
-	var desired := shoulder + (to_t / dlen) * minf(dlen, reach_max)
+	var dir := Vector3(cos(chain["aim_angle"]), sin(chain["aim_angle"]), 0.0)
+	var desired := shoulder + dir * reach_max
 
 	# Only a hand actually touching a surface can push. Cast shoulder -> commanded
 	# hand; a hit means the surface is in the way of where we're aiming.
@@ -611,23 +615,6 @@ func _push_off(chain: Dictionary) -> void:
 	var vel: Vector3 = _torso.linear_velocity + push
 	vel.z = 0.0
 	_torso.linear_velocity = vel
-
-
-## Project the mouse ray onto the vertical plane the player climbs in (the plane
-## through the skeleton, facing the camera) and return that world point.
-func _mouse_target() -> Vector3:
-	var mouse := get_viewport().get_mouse_position()
-	var ray_origin := _camera.project_ray_origin(mouse)
-	var ray_dir := _camera.project_ray_normal(mouse)
-
-	# Plane passes through the shoulders, with a normal facing the camera so the
-	# arms swing in the X-Y "screen" plane like a 2D pendulum.
-	var plane_point := _skeleton.global_position
-	var plane_normal := Vector3.BACK # +Z; the 2.5D play plane faces the camera.
-	var plane := Plane(plane_normal, plane_point.dot(plane_normal))
-
-	var hit = plane.intersects_ray(ray_origin, ray_dir)
-	return hit if hit != null else _target_world
 
 
 ## Analytic two-bone IK for one arm, all in skeleton-local space. `clamp_reach`
