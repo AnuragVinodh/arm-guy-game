@@ -50,6 +50,14 @@ const ARMS := [
 ## through. Bump it up if hands still clip; down if the arm stops too far away.
 @export_range(0.0, 0.5, 0.01) var surface_offset: float = 0.1
 
+## Arm thickness (world units) for the reach-clamp's shape-cast. The clamp sweeps a
+## sphere of this radius down each bone segment instead of a 1-D ray, so the arm
+## clears colliders by its real width and can't slip a thin edge between rays.
+## Bigger = the posing arm keeps more distance from surfaces (total clearance is
+## roughly arm_thickness + surface_offset). Only the free-arm clip-avoidance uses
+## this — the clamp is skipped while gripping, so it doesn't affect the swing.
+@export_range(0.0, 0.3, 0.01) var arm_thickness: float = 0.06
+
 ## GRAB = PIVOT. A gripping hand is pinned to its grab point and the body orbits
 ## that point. While that arm's pose key is held the cursor steers like a steering
 ## wheel — rotating it around the anchor turns the body the SAME way, starting from
@@ -59,6 +67,13 @@ const ARMS := [
 ## the swing so a fast cursor flick doesn't teleport.
 @export_range(1.0, 40.0, 0.5) var swing_strength: float = 18.0
 @export var max_swing_speed: float = 16.0
+
+## How far (world units) the cursor must sit from the grab pivot before it steers.
+## Inside this radius a tiny mouse move sweeps a huge angle around the pivot (and
+## crossing the pivot flips it ~180°), which would spin the body — so within it the
+## swing just holds its current angle, ignoring how close the cursor is. Bigger =
+## a wider neutral zone around the pivot.
+@export_range(0.0, 2.0, 0.05) var steer_deadzone: float = 0.35
 
 ## STRAIGHTEN-ON-GRIP. While a grabbed arm's pose key is held, its orbit radius
 ## eases out toward the arm's full reach (`straighten_speed`, world units/sec) so a
@@ -153,7 +168,8 @@ func _ready() -> void:
 			"anchor": Vector3.ZERO, # world-space grab point while grabbed
 			"pivot_r": 0.0,         # body's orbit radius around the grab anchor
 			"pivot_r_max": 0.0,     # radius the arm straightens out to while gripping
-			"on_bar": false,        # grabbed a Bar? (only bars straighten the arm out)
+			"on_bar": false,        # grabbed a Bar? (bars orbit free; flats get a guard)
+			"grab_normal": Vector3.UP, # surface normal at grab — anti-spasm half-space (flats)
 			"prev_desired": null,   # last frame's commanded hand pos (world), for push
 			"swing_angle": 0.0,     # body's angle around the anchor (play plane), for fling
 			"swing_omega": 0.0,     # smoothed angular speed of the swing, rad/s
@@ -255,6 +271,14 @@ func _try_grab(chain: Dictionary) -> void:
 	if collider != null and collider.has_method("axis_center"):
 		anchor = collider.call("axis_center", hand)
 		anchor.z = _torso.global_position.z  # keep the swing in the 2.5D play plane
+	# Surface normal at the grab, for the flat-surface anti-spasm guard. Orient it to
+	# point from the surface toward the body (the open side) so the half-space test in
+	# _pivot_body is correct regardless of the engine's normal convention.
+	var rest := space.get_rest_info(query)
+	var gn: Vector3 = rest["normal"] if rest.has("normal") else Vector3.UP
+	if gn.dot(_torso.global_position - anchor) < 0.0:
+		gn = -gn
+	chain["grab_normal"] = gn
 	_grab(chain, anchor, collider)
 
 
@@ -265,9 +289,9 @@ func _grab(chain: Dictionary, anchor_world: Vector3, body: Object) -> void:
 	chain["anchor"] = anchor_world
 	chain["pivot_r"] = maxf(0.05, _torso.global_position.distance_to(anchor_world))
 	chain["grabbed"] = true
-	# Only a Bar straightens out. On flat ground the straighten would drive the arm
-	# into the surface, fighting the reach-clamp and making the body spasm — so the
-	# orbit radius stays fixed for non-bar grabs.
+	# Bars orbit freely all the way around; flat grabs instead get the anti-spasm
+	# half-space guard in _pivot_body. Both straighten the arm out toward a rigid
+	# spoke (so the elbow stops re-folding as the body orbits).
 	chain["on_bar"] = body != null and body.has_method("axis_center")
 	# Fresh grab: clear any stale steer session so the first steer frame re-pins the
 	# body's angle here (no snap across the pivot).
@@ -317,6 +341,7 @@ func _pivot_body(delta: float) -> void:
 	var target := Vector3.ZERO
 	var active := 0
 	var passive: Array = []
+	var block_normal := Vector3.ZERO  # blocked into-surface dir from active flat grabs
 	for chain in _chains:
 		if not chain["grabbed"]:
 			continue
@@ -334,26 +359,32 @@ func _pivot_body(delta: float) -> void:
 			# ACTIVE: the cursor steers like a steering wheel — rotating it around the
 			# anchor rotates the body the SAME way, starting from wherever the body is
 			# when steering begins. So grabbing/holding never snaps the body across the
-			# pivot; it only turns as you turn the cursor. On a bar, also ease the
-			# radius out toward full reach so the arm straightens into a rigid spoke.
-			if chain["on_bar"]:
-				chain["pivot_r"] = move_toward(chain["pivot_r"], chain["pivot_r_max"], straighten_speed * delta)
-			var cursor_rel: Vector3 = _target_world - chain["anchor"]
-			var has_cursor: bool = cursor_rel.length() > 0.1  # ignore a cursor on the pivot
-			var cursor_ang: float = atan2(cursor_rel.y, cursor_rel.x) if has_cursor else 0.0
+			# pivot; it only turns as you turn the cursor. Ease the radius out toward
+			# full reach so the arm straightens into a rigid spoke (the smooth swing);
+			# a flat grab records its surface normal so the drive below can't shove the
+			# torso into that surface as it straightens (the anti-spasm guard).
+			chain["pivot_r"] = move_toward(chain["pivot_r"], chain["pivot_r_max"], straighten_speed * delta)
+			if not chain["on_bar"]:
+				block_normal += chain["grab_normal"]
+			# Begin a steer session on the first active frame: pin the body's CURRENT
+			# angle so there's no jump; the cursor only adds rotation from here.
 			if not chain["steering"]:
-				# Begin a steer session: pin the body's CURRENT angle as the start so
-				# there's no jump; the cursor only adds rotation from here on.
 				chain["steering"] = true
 				chain["steer_body_ang"] = atan2(to_body.y, to_body.x)
-				chain["steer_cursor_ang"] = cursor_ang
-				chain["steer_has_cursor"] = has_cursor
-			elif has_cursor:
-				# Add however far the cursor swept around the anchor since last frame.
+				chain["steer_has_cursor"] = false
+			# Steer only when the cursor is clear of the pivot. Inside steer_deadzone the
+			# angle is hypersensitive (and flips ~180° across the pivot), so we hold the
+			# angle and DROP the reference — re-pinning when the cursor leaves the zone so
+			# crossing it doesn't whip the body. This removes the cursor-distance spin.
+			var cursor_rel: Vector3 = _target_world - chain["anchor"]
+			if cursor_rel.length() > steer_deadzone:
+				var cursor_ang: float = atan2(cursor_rel.y, cursor_rel.x)
 				if chain["steer_has_cursor"]:
 					chain["steer_body_ang"] += wrapf(cursor_ang - chain["steer_cursor_ang"], -PI, PI)
 				chain["steer_cursor_ang"] = cursor_ang
 				chain["steer_has_cursor"] = true
+			else:
+				chain["steer_has_cursor"] = false
 			var ba: float = chain["steer_body_ang"]
 			target += chain["anchor"] + Vector3(cos(ba), sin(ba), 0.0) * chain["pivot_r"]
 			active += 1
@@ -371,6 +402,14 @@ func _pivot_body(delta: float) -> void:
 		var vel := to_target * swing_strength
 		if vel.length() > max_swing_speed:
 			vel = vel.normalized() * max_swing_speed
+		# Anti-spasm: never drive the torso INTO a grabbed flat surface — it would jam
+		# against the collider and oscillate as the straighten pushes it back. Strip the
+		# into-surface part so the body can only slide along the surface or pull away.
+		if block_normal.length() > 1e-4:
+			var bn := block_normal.normalized()
+			var into := vel.dot(bn)
+			if into < 0.0:
+				vel -= bn * into
 		vel.z = 0.0
 		_torso.linear_velocity = vel
 		return
@@ -602,26 +641,42 @@ func _clamp_arm(a: Vector3, dir: Vector3, dist: float, reach_min: float, l1: flo
 	return dist
 
 
-## Cast a ray between two skeleton-local points. On a hit, return the hit
-## position (in skeleton-local space) backed off toward the start by
-## `surface_offset`, so the hand/finger mesh stops short of the surface instead
-## of poking through. Returns null when nothing is hit. Areas are ignored by ray
-## queries, so only solid colliders block the arm.
+## Sweep a thin sphere (radius `arm_thickness`) between two skeleton-local points —
+## a "fat raycast" that gives the arm real width, so it clears a collider by its
+## thickness instead of only where a 1-D ray happens to land (no slipping a thin
+## edge between rays). On a hit, return the contact position (skeleton-local) backed
+## off toward the start by `surface_offset` so the hand/finger mesh stops short of
+## the surface. Returns null when the segment is clear. Areas are ignored, so only
+## solid colliders block the arm.
 func _cast_local(space: PhysicsDirectSpaceState3D, xform: Transform3D, p0: Vector3, p1: Vector3) -> Variant:
 	var from := xform * p0
 	var to := xform * p1
-	var query := PhysicsRayQueryParameters3D.create(from, to)
-	query.exclude = _exclude
-	var hit := space.intersect_ray(query)
-	if hit.is_empty():
+	var motion := to - from
+	var seg_len := motion.length()
+	if seg_len < 1e-5:
 		return null
 
-	var hpos: Vector3 = hit["position"]
-	var seg := to - from
-	var seg_len := seg.length()
-	if seg_len > 1e-5:
-		var back: float = minf(surface_offset, hpos.distance_to(from))
-		hpos -= (seg / seg_len) * back
+	var shape := SphereShape3D.new()
+	shape.radius = arm_thickness
+	var params := PhysicsShapeQueryParameters3D.new()
+	params.shape = shape
+	params.transform = Transform3D(Basis(), from)
+	params.motion = motion
+	params.exclude = _exclude
+
+	# cast_motion returns [safe, unsafe] fractions along `motion`. unsafe == 0 means
+	# the sphere already overlaps at the start (e.g. the shoulder is flush on a wall);
+	# treat that as "no usable clamp" so the arm doesn't collapse against itself.
+	var res := space.cast_motion(params)
+	if res.is_empty() or res[1] <= 0.0:
+		return null
+	var safe: float = res[0]
+	if safe >= 1.0:
+		return null  # segment is clear
+
+	var hit_dist := seg_len * safe
+	var back: float = minf(surface_offset, hit_dist)
+	var hpos := from + (motion / seg_len) * (hit_dist - back)
 	return xform.affine_inverse() * hpos
 
 
