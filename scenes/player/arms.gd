@@ -309,8 +309,11 @@ func _try_grab(chain: Dictionary) -> void:
 	# Duck-typed so this file needn't depend on the Bar class: anything exposing
 	# axis_center() (i.e. a Bar) supplies its own cross-section-center pivot.
 	if collider != null and collider.has_method("axis_center"):
+		# Pivot on the bar's cross-section CENTER, so X and Y stay centered on the bar
+		# (a smooth orbit), at the point along the bar's axis nearest THIS hand — so
+		# the depth aligns with each arm's own grip instead of snapping to the torso
+		# plane. axis_center returns exactly that point on the axis.
 		anchor = collider.call("axis_center", hand)
-		anchor.z = _torso.global_position.z  # keep the swing in the 2.5D play plane
 	# Surface normal at the grab, for the flat-surface anti-spasm guard. Orient it to
 	# point from the surface toward the body (the open side) so the half-space test in
 	# _pivot_body is correct regardless of the engine's normal convention.
