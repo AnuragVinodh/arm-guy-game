@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3 uid="uid://c6d78w18ffyso"]
+[gd_scene load_steps=7 format=3 uid="uid://c6d78w18ffyso"]
 
 [ext_resource type="PackedScene" uid="uid://dmpugfo23bybv" path="res://assets/box_B.fbx" id="1_box"]
 [ext_resource type="PackedScene" uid="uid://dyy5slst447df" path="res://assets/arms/arms.glb" id="2_arms"]
@@ -6,6 +6,8 @@
 [ext_resource type="Script" uid="uid://b3jhl3eijpmjm" path="res://scenes/player/arms.gd" id="4_arms"]
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_lvxji"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_lvxji"]
 
 [node name="Player" type="RigidBody3D"]
 axis_lock_linear_z = true
@@ -19,11 +21,19 @@ script = ExtResource("3_player")
 
 [node name="Box" parent="." instance=ExtResource("1_box")]
 transform = Transform3D(6, 0, 0, 0, 6, 0, 0, 0, 6, 0, 0, 0)
+visible = false
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5088, 0)
 shape = SubResource("SphereShape3D_lvxji")
 
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5088, 0)
+mesh = SubResource("SphereMesh_lvxji")
+skeleton = NodePath("../CollisionShape3D")
+
 [node name="ArmFront" parent="." instance=ExtResource("2_arms")]
-transform = Transform3D(0.008737639, 0, -0.29987273, 0, 0.3, 0, 0.29987273, 0, 0.008737639, 0, 0.6382853, 0)
+transform = Transform3D(0.008737639, 0, -0.29987273, 0, 0.3, 0, 0.29987273, 0, 0.008737639, 0, 0.5096968, 0)
 script = ExtResource("4_arms")
+grab_margin = 0.15
+max_push_speed = 100.0
