@@ -84,6 +84,14 @@ const ARMS := [
 ## freezes the current radius.
 @export_range(0.0, 40.0, 0.5) var straighten_speed: float = 18.5
 
+## ANTI-SPASM CLEARANCE (world units) for flat (non-bar) grabs. The swing drive is
+## stopped from pushing the torso INTO the grabbed surface only while the body is
+## within this distance of it — so straightening can't jam the body against a
+## ground/wall, but once the swing carries the body clear it rotates freely again.
+## Smaller = more rotation toward the surface (but risks jamming); bigger = safer but
+## more limited rotation near the surface.
+@export var surface_clearance: float = 0.8
+
 ## RELEASE FLING. Let go mid-swing and the body launches tangentially at the speed
 ## it was orbiting (v = ω·r), in the direction it was rotating — wind up a swing,
 ## release, and you fly off the arc. `fling_gain` scales it (1.0 = true orbital
@@ -384,7 +392,9 @@ func _pivot_body(delta: float) -> void:
 	var target := Vector3.ZERO
 	var active := 0
 	var passive: Array = []
-	var block_normal := Vector3.ZERO  # blocked into-surface dir from active flat grabs
+	var block_normal := Vector3.ZERO  # summed into-surface normals from active flat grabs
+	var block_point := Vector3.ZERO   # summed surface anchors (to gauge distance to surface)
+	var block_count := 0
 	for chain in _chains:
 		if not chain["grabbed"]:
 			continue
@@ -409,6 +419,8 @@ func _pivot_body(delta: float) -> void:
 			chain["pivot_r"] = move_toward(chain["pivot_r"], chain["pivot_r_max"], straighten_speed * delta)
 			if not chain["on_bar"]:
 				block_normal += chain["grab_normal"]
+				block_point += chain["anchor"]
+				block_count += 1
 			# Begin a steer session on the first active frame: pin the body's CURRENT
 			# angle so there's no jump; the cursor only adds rotation from here.
 			if not chain["steering"]:
@@ -445,13 +457,15 @@ func _pivot_body(delta: float) -> void:
 		var vel := to_target * swing_strength
 		if vel.length() > max_swing_speed:
 			vel = vel.normalized() * max_swing_speed
-		# Anti-spasm: never drive the torso INTO a grabbed flat surface — it would jam
-		# against the collider and oscillate as the straighten pushes it back. Strip the
-		# into-surface part so the body can only slide along the surface or pull away.
-		if block_normal.length() > 1e-4:
+		# Anti-spasm, but only while the body is CLOSE to the grabbed surface. Far from
+		# it the body has room to swing, so allow the full arc; only near the surface do
+		# we strip the into-surface velocity that would jam and oscillate the body.
+		if block_count > 0:
 			var bn := block_normal.normalized()
+			var surf: Vector3 = block_point / float(block_count)
+			var to_surface := (_torso.global_position - surf).dot(bn)
 			var into := vel.dot(bn)
-			if into < 0.0:
+			if to_surface < surface_clearance and into < 0.0:
 				vel -= bn * into
 		vel.z = 0.0
 		_torso.linear_velocity = vel
