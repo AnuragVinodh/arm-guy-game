@@ -16,11 +16,12 @@ extends Node3D
 ##            While posed, a hand pressed on a surface pushes the body (see
 ##            _push_off) — that's how you scoot around without grabbing.
 ##   button — hold that mouse button to GRAB whatever the palm is touching, turning
-##            it into a pivot the body swings around; release to let go. Mapping is
-##            crossed: left click grabs with the RIGHT hand, right click the LEFT.
+##            it into a pivot the body swings around; release to let go. Each arm's
+##            grab button matches its pose key's side: A + left click = left arm,
+##            D + right click = right arm.
 const ARMS := [
-	{ "bicep": "bicep.l", "forearm": "forearm.l", "wrist": "wrist.l", "key": KEY_A, "button": MOUSE_BUTTON_RIGHT },
-	{ "bicep": "bicep.r", "forearm": "forearm.r", "wrist": "wrist.r", "key": KEY_D, "button": MOUSE_BUTTON_LEFT },
+	{ "bicep": "bicep.l", "forearm": "forearm.l", "wrist": "wrist.l", "key": KEY_A, "button": MOUSE_BUTTON_LEFT },
+	{ "bicep": "bicep.r", "forearm": "forearm.r", "wrist": "wrist.r", "key": KEY_D, "button": MOUSE_BUTTON_RIGHT },
 ]
 
 ## How far the hand can reach, as a fraction of the full arm length. Keeping this

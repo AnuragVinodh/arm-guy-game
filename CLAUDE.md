@@ -8,8 +8,8 @@ Physics rage/climbing game (Getting Over It / Only Up). A torso with two arms; t
 |-------|--------|
 | Hold **A** | aim/pose the **left** arm at the mouse |
 | Hold **D** | aim/pose the **right** arm at the mouse |
-| Hold **Left click** | grab with the **right** hand (crossed mapping) |
-| Hold **Right click** | grab with the **left** hand |
+| Hold **Left click** | grab with the **left** hand |
+| Hold **Right click** | grab with the **right** hand |
 | **R** | restart scene |
 
 Released arms freeze in place. **Arm collision is always on:** a posed (non-gripping) arm whose hand presses against a surface shoves the torso when you *rotate* the arm — pressing into the surface peels you off its normal, sweeping along it scoots you the opposite way. That's how you crawl/scoot without grabbing (a still hand does nothing — no jetpack). **Grabbing is a pivot:** the hand pins to the contact point and the body orbits it; while the pose key is held the arm pulls taut (straightens) so the swing rides on a rigid spoke. The cursor steers that swing only while the grabbed arm's pose key (A/D) is also held — with the key up the grip goes passive and the body swings/falls as a free gravity pendulum on the arm (keeping its momentum) rather than chasing the mouse. Releasing the grab flings the body tangentially at the speed it was orbiting, in the direction of the spin (wind up a swing, let go, fly off the arc); release while holding still and you just drop.
