@@ -19,9 +19,12 @@ extends Node3D
 ##            it into a pivot the body swings around; release to let go. Each arm's
 ##            grab button matches its pose key's side: A + left click = left arm,
 ##            D + right click = right arm.
+## `roll` flips the bone's twist about its own +Y (1 = as-is, -1 = 180° flipped). The
+## left arm's mesh is a mirror of the right, but the IK orients both with the same
+## world roll reference, so the mirrored side comes out upside-down — flip it back.
 const ARMS := [
-	{ "bicep": "bicep.l", "forearm": "forearm.l", "wrist": "wrist.l", "key": KEY_A, "button": MOUSE_BUTTON_LEFT },
-	{ "bicep": "bicep.r", "forearm": "forearm.r", "wrist": "wrist.r", "key": KEY_D, "button": MOUSE_BUTTON_RIGHT },
+	{ "bicep": "bicep.l", "forearm": "forearm.l", "wrist": "wrist.l", "key": KEY_A, "button": MOUSE_BUTTON_LEFT, "roll": -1.0 },
+	{ "bicep": "bicep.r", "forearm": "forearm.r", "wrist": "wrist.r", "key": KEY_D, "button": MOUSE_BUTTON_RIGHT, "roll": 1.0 },
 ]
 
 ## How far the hand can reach, as a fraction of the full arm length. Keeping this
@@ -180,10 +183,10 @@ func _ready() -> void:
 			"l2": l2,
 			"key": arm["key"],
 			"button": arm["button"],
+			"roll": arm["roll"],    # +1 / -1: flips the arm's twist (mirrored-rig fix)
 			"grabbed": false,
 			"anchor": Vector3.ZERO, # world-space grab point while grabbed
 			"pivot_r": 0.0,         # body's orbit radius around the grab anchor
-			"pivot_r_max": 0.0,     # radius the arm straightens out to while gripping
 			"on_bar": false,        # grabbed a Bar? (bars orbit free; flats get a guard)
 			"grab_normal": Vector3.UP, # surface normal at grab — anti-spasm half-space (flats)
 			"prev_desired": null,   # last frame's commanded hand pos (world), for push
@@ -347,14 +350,6 @@ func _grab(chain: Dictionary, anchor_world: Vector3, body: Object) -> void:
 	# Fresh grab: clear any stale steer session so the first steer frame re-pins the
 	# body's angle here (no snap across the pivot).
 	chain["steering"] = false
-	# How far the radius may straighten out: extend only by the arm's current slack
-	# (full reach from the shoulder minus how extended it already is), so pulling the
-	# arm taut into a spoke can't yank the hand off the anchor.
-	var world_scale: float = _skeleton.global_transform.basis.get_scale().x
-	var reach_max: float = (chain["l1"] + chain["l2"]) * max_reach * world_scale
-	var shoulder: Vector3 = _skeleton.global_transform * _skeleton.get_bone_global_pose(chain["bicep"]).origin
-	var slack: float = maxf(0.0, reach_max - shoulder.distance_to(anchor_world))
-	chain["pivot_r_max"] = chain["pivot_r"] + slack * 0.95
 	# Seed swing tracking from the current angle so the first frame reads ~0 spin
 	# (not a spike) — the fling builds up only as you actually start swinging.
 	var rel := _torso.global_position - anchor_world
@@ -408,15 +403,16 @@ func _pivot_body(delta: float) -> void:
 		var inst_omega := d_ang / maxf(delta, 1e-5)
 		chain["swing_omega"] = lerpf(chain["swing_omega"], inst_omega, clampf(spin_smooth * delta, 0.0, 1.0))
 
+		# Pull the arm taut to a rigid spoke EVERY frame — active or passive — driven by
+		# the live shoulder→anchor distance, so the elbow can't re-fold as the body spins.
+		_straighten(chain, delta)
+
 		if Input.is_key_pressed(chain["key"]):
 			# ACTIVE: the cursor steers like a steering wheel — rotating it around the
 			# anchor rotates the body the SAME way, starting from wherever the body is
-			# when steering begins. So grabbing/holding never snaps the body across the
-			# pivot; it only turns as you turn the cursor. Ease the radius out toward
-			# full reach so the arm straightens into a rigid spoke (the smooth swing);
-			# a flat grab records its surface normal so the drive below can't shove the
-			# torso into that surface as it straightens (the anti-spasm guard).
-			chain["pivot_r"] = move_toward(chain["pivot_r"], chain["pivot_r_max"], straighten_speed * delta)
+			# when steering begins, so grabbing/holding never snaps the body across the
+			# pivot. A flat grab records its surface normal + point so the drive below
+			# can't shove the torso into that surface (the anti-spasm guard).
 			if not chain["on_bar"]:
 				block_normal += chain["grab_normal"]
 				block_point += chain["anchor"]
@@ -469,12 +465,71 @@ func _pivot_body(delta: float) -> void:
 				vel -= bn * into
 		vel.z = 0.0
 		_torso.linear_velocity = vel
-		return
+	else:
+		# Otherwise every grip is passive: let the body swing/fall as a pendulum on the
+		# rope instead of freezing it in place.
+		for chain in passive:
+			_constrain_to_rope(chain, delta)
 
-	# Otherwise every grip is passive: let the body swing/fall as a pendulum on the
-	# rope instead of freezing it in place.
-	for chain in passive:
-		_constrain_to_rope(chain, delta)
+	# Hard reach leash, applied AFTER the drive/constraint: the hand is only IK-glued to
+	# the anchor while the shoulder is within arm's reach, so never let the torso be
+	# pushed past it — that brief over-reach is what pops the hand off the pivot.
+	for chain in _chains:
+		if chain["grabbed"]:
+			_leash_to_reach(chain, delta)
+
+
+## Ease the orbit radius so the arm pulls taut to (near) full extension, measured from
+## the LIVE shoulder→anchor distance — not the torso center, and not a grab-time
+## snapshot. Driving off the real arm length each frame keeps the elbow straight as the
+## body spins (it cancels the wobble from the shoulder being offset from the orbit
+## center) and runs whether the grip is active or passive (no freeze on key-up). It
+## self-limits: targeting just under full reach means an over-extended arm pulls the
+## radius back in, so the hand can't detach.
+func _straighten(chain: Dictionary, delta: float) -> void:
+	var world_scale: float = _skeleton.global_transform.basis.get_scale().x
+	var reach_max: float = (chain["l1"] + chain["l2"]) * max_reach * world_scale
+	var shoulder: Vector3 = _skeleton.global_transform * _skeleton.get_bone_global_pose(chain["bicep"]).origin
+	var shoulder_dist: float = shoulder.distance_to(chain["anchor"])
+	# Nudge pivot_r by the shortfall so the live shoulder→anchor distance approaches
+	# full reach, then ease there at straighten_speed.
+	var target_r: float = chain["pivot_r"] + (reach_max * 0.98 - shoulder_dist)
+	# Anti-windup: the body only follows pivot_r through the velocity drive, with lag.
+	# Let pivot_r run far ahead while the body catches up and it overshoots full reach,
+	# the leash yanks it back, and the two oscillate (a spasm). So cap how far pivot_r
+	# may lead the body's ACTUAL distance — it ratchets out as the body keeps up.
+	var rel: Vector3 = _torso.global_position - chain["anchor"]
+	rel.z = 0.0
+	target_r = minf(target_r, rel.length() + reach_max * 0.15)
+	chain["pivot_r"] = move_toward(chain["pivot_r"], maxf(0.05, target_r), straighten_speed * delta)
+
+
+## Hard upper bound on how far the torso may sit from the anchor: arm's reach. The
+## grab is IK glue, not a joint, so the hand only stays on the anchor while the
+## SHOULDER is within reach_max — push past that and the IK clamps and the hand pops
+## off. This pulls the torso back onto the reach sphere (and kills the outward velocity)
+## the moment it over-reaches, so the hand can't visibly detach. Measured at the
+## shoulder (where the arm starts), in the play plane.
+func _leash_to_reach(chain: Dictionary, delta: float) -> void:
+	var world_scale: float = _skeleton.global_transform.basis.get_scale().x
+	var reach_max: float = (chain["l1"] + chain["l2"]) * max_reach * world_scale
+	var shoulder: Vector3 = _skeleton.global_transform * _skeleton.get_bone_global_pose(chain["bicep"]).origin
+	var sa: Vector3 = shoulder - chain["anchor"]
+	sa.z = 0.0
+	var dist := sa.length()
+	if dist <= reach_max or dist < 1e-4:
+		return
+	var n := sa / dist  # outward (anchor → shoulder) direction
+	var v: Vector3 = _torso.linear_velocity
+	var outward := v.dot(n)
+	if outward > 0.0:
+		v -= n * outward                           # stop pushing further out
+	# Pull back onto the reach sphere, but cap the correction speed so a momentary
+	# over-reach is eased in over a few frames instead of snapped in one (which would
+	# bounce against the drive and spasm).
+	v -= n * minf((dist - reach_max) / maxf(delta, 1e-5), max_swing_speed)
+	v.z = 0.0
+	_torso.linear_velocity = v
 
 
 ## Keep a passively-gripping body on its rope (the orbit radius) WITHOUT driving it:
@@ -623,10 +678,12 @@ func _solve_arm(chain: Dictionary, target: Vector3, clamp_reach: bool = true) ->
 	var bicep_dir := (elbow - a).normalized()        # shoulder -> elbow
 	var forearm_dir := (wrist - elbow).normalized()  # elbow -> wrist
 
-	# Aim each bone's +Y down its direction. Use `bend` as the roll reference so
-	# the elbow consistently hinges in the bend plane.
-	var bicep_global := _aim_y(bicep_dir, bend)
-	var forearm_global := _aim_y(forearm_dir, bend)
+	# Aim each bone's +Y down its direction. Use `bend` as the roll reference so the
+	# elbow consistently hinges in the bend plane; the per-arm `roll` sign flips the
+	# twist 180° for the mirrored arm so its mesh isn't upside-down (aim/bend unchanged).
+	var roll_ref: Vector3 = bend * float(chain["roll"])
+	var bicep_global := _aim_y(bicep_dir, roll_ref)
+	var forearm_global := _aim_y(forearm_dir, roll_ref)
 
 	# Convert the desired GLOBAL (skeleton-space) orientations into LOCAL bone
 	# rotations and apply them. Order matters: set the bicep first, because the
