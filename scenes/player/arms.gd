@@ -104,8 +104,15 @@ const ARMS := [
 @export_range(0.0, 60.0, 0.5) var push_gain: float = 8
 @export var max_push_speed: float = 8.0
 
+## DEBUG: draw a bright sphere at each grab pivot (the anchor the body orbits) while
+## that hand is gripping, so you can see where the swing is centered. Purely visual.
+@export var debug_show_pivot: bool = true
+
 var _skeleton: Skeleton3D
 var _camera: Camera3D
+
+## One debug marker per arm (same index as _chains); shown at the anchor while grabbed.
+var _pivot_markers: Array[MeshInstance3D] = []
 
 ## The torso this arm rig hangs off — the RigidBody3D a grab pins to the world.
 var _torso: PhysicsBody3D
@@ -183,6 +190,29 @@ func _ready() -> void:
 	# Start the target somewhere sensible so the first frame doesn't lurch.
 	_target_world = global_position
 
+	_build_pivot_markers()
+
+
+## Create one always-on-top debug sphere per arm to mark its grab pivot. `top_level`
+## makes each ignore the (scaled/rotated) arm-rig transform so it sits at a true
+## world position; `no_depth_test` draws it over geometry so it's never hidden.
+func _build_pivot_markers() -> void:
+	for i in _chains.size():
+		var sphere := SphereMesh.new()
+		sphere.radius = 0.12
+		sphere.height = 0.24
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.no_depth_test = true
+		mat.albedo_color = Color(1.0, 0.25, 0.2) if i == 0 else Color(0.25, 0.6, 1.0)
+		var m := MeshInstance3D.new()
+		m.mesh = sphere
+		m.material_override = mat
+		m.top_level = true
+		m.visible = false
+		add_child(m)
+		_pivot_markers.append(m)
+
 
 func _physics_process(delta: float) -> void:
 	if _skeleton == null or _chains.is_empty():
@@ -234,6 +264,15 @@ func _physics_process(delta: float) -> void:
 	#    drive the torso toward the average of those orbit points. This is the
 	#    climb/swing.
 	_pivot_body(delta)
+
+	# 6. Debug: park each pivot marker on its grab anchor (or hide it when free).
+	for i in _chains.size():
+		var m: MeshInstance3D = _pivot_markers[i]
+		if debug_show_pivot and _chains[i]["grabbed"]:
+			m.global_position = _chains[i]["anchor"]
+			m.visible = true
+		else:
+			m.visible = false
 
 
 ## Try to grab whatever the palm is touching. Overlap-tests a small sphere
