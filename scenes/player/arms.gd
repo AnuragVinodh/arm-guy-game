@@ -654,10 +654,11 @@ func _solve_arm(chain: Dictionary, target: Vector3, clamp_reach: bool = true) ->
 	# clear all colliders, with a margin so the hand mesh doesn't poke through.
 	# Skipped while gripping so the hand stays pinned to the anchor.
 	if clamp_reach:
-		dist = _clamp_arm(a, dir, dist, reach_min, l1, l2, pole)
+		dist = _clamp_arm(a, dir, dist, reach_min, l1, l2, pole, chain["roll"])
 
-	# Resolve the elbow at the final, safe reach.
-	var solved := _bend_solve(a, dir, dist, l1, l2, pole)
+	# Resolve the elbow at the final, safe reach. The per-arm `roll` sign mirrors the
+	# elbow to the correct side for the (reflected) left arm.
+	var solved := _bend_solve(a, dir, dist, l1, l2, pole, chain["roll"])
 	var elbow: Vector3 = solved["elbow"]
 	var bend: Vector3 = solved["bend"]
 	var wrist := a + dir * dist                      # exact analytic hand position
@@ -665,12 +666,11 @@ func _solve_arm(chain: Dictionary, target: Vector3, clamp_reach: bool = true) ->
 	var bicep_dir := (elbow - a).normalized()        # shoulder -> elbow
 	var forearm_dir := (wrist - elbow).normalized()  # elbow -> wrist
 
-	# Aim each bone's +Y down its direction. Use `bend` as the roll reference so the
-	# elbow consistently hinges in the bend plane; the per-arm `roll` sign flips the
-	# twist 180° for the mirrored arm so its mesh isn't upside-down (aim/bend unchanged).
-	var roll_ref: Vector3 = bend * float(chain["roll"])
-	var bicep_global := _aim_y(bicep_dir, roll_ref)
-	var forearm_global := _aim_y(forearm_dir, roll_ref)
+	# Aim each bone's +Y down its direction, using the (already per-arm-signed) `bend`
+	# as the roll reference so the elbow hinges in the bend plane and the mirrored arm's
+	# mesh isn't upside-down. That same sign also placed the elbow on the mirrored side.
+	var bicep_global := _aim_y(bicep_dir, bend)
+	var forearm_global := _aim_y(forearm_dir, bend)
 
 	# Convert the desired GLOBAL (skeleton-space) orientations into LOCAL bone
 	# rotations and apply them. Order matters: set the bicep first, because the
@@ -689,7 +689,7 @@ func _solve_arm(chain: Dictionary, target: Vector3, clamp_reach: bool = true) ->
 ## Solve the elbow for one arm at a given reach `dist`, in skeleton-local space.
 ## `pole` is the (skeleton-local) bow direction. Returns the elbow position and
 ## the bend direction (the side the elbow bows to).
-func _bend_solve(a: Vector3, dir: Vector3, dist: float, l1: float, l2: float, pole: Vector3) -> Dictionary:
+func _bend_solve(a: Vector3, dir: Vector3, dist: float, l1: float, l2: float, pole: Vector3, bend_sign: float = 1.0) -> Dictionary:
 	# Law of cosines: how far along the shoulder->hand line the elbow projects,
 	# and how far off to the side it bends.
 	var cos_shoulder: float = clamp((l1 * l1 + dist * dist - l2 * l2) / (2.0 * l1 * dist), -1.0, 1.0)
@@ -703,7 +703,9 @@ func _bend_solve(a: Vector3, dir: Vector3, dist: float, l1: float, l2: float, po
 		bend = dir.cross(Vector3.RIGHT)
 		if bend.length() < 1e-4:
 			bend = dir.cross(Vector3.UP)
-	bend = bend.normalized()
+	# `bend_sign` mirrors the elbow to the other side for a reflected (left) arm, so it
+	# bends the matching way and its mesh rolls right-side-up (bend doubles as the roll).
+	bend = bend.normalized() * bend_sign
 
 	return { "elbow": a + dir * along + bend * aside, "bend": bend }
 
@@ -712,14 +714,14 @@ func _bend_solve(a: Vector3, dir: Vector3, dist: float, l1: float, l2: float, po
 ## elbow->wrist) cuts through a collider. Because shrinking the reach moves the
 ## elbow, we re-solve and re-test a few times so the pose converges. All inputs
 ## are skeleton-local; `reach_min` is the tightest the arm may ever fold.
-func _clamp_arm(a: Vector3, dir: Vector3, dist: float, reach_min: float, l1: float, l2: float, pole: Vector3) -> float:
+func _clamp_arm(a: Vector3, dir: Vector3, dist: float, reach_min: float, l1: float, l2: float, pole: Vector3, bend_sign: float = 1.0) -> float:
 	var space := _skeleton.get_world_3d().direct_space_state
 	if space == null:
 		return dist
 
 	var xform := _skeleton.global_transform
 	for _i in 4:
-		var solved := _bend_solve(a, dir, dist, l1, l2, pole)
+		var solved := _bend_solve(a, dir, dist, l1, l2, pole, bend_sign)
 		var elbow: Vector3 = solved["elbow"]
 		var wrist := a + dir * dist
 
