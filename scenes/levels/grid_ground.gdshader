@@ -19,7 +19,7 @@ void vertex() {
 void fragment() {
 	// Grid is drawn on the X-Y plane (the faces the side-on camera sees).
 	vec2 coord = world_pos.xy / grid_size;
-	vec2 g = abs(fract(coord - 0.5) - 0.5) / fwidth(coord);
+	vec2 g = abs(fract(coord - 0.5) - 0.5) / max(fwidth(coord), vec2(1e-4));
 	float line = 1.0 - min(min(g.x, g.y), 1.0);
 	ALBEDO = mix(base_color, line_color, line);
 	ROUGHNESS = roughness_val;
