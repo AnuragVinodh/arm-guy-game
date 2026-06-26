@@ -35,5 +35,6 @@ skeleton = NodePath("../CollisionShape3D")
 [node name="ArmFront" parent="." instance=ExtResource("2_arms")]
 transform = Transform3D(0.008737639, 0, -0.29987273, 0, 0.3, 0, 0.29987273, 0, 0.008737639, 0, 0.5096968, 0)
 script = ExtResource("4_arms")
+rotate_speed = 12.0
 grab_margin = 0.15
 max_push_speed = 100.0
