@@ -1,11 +1,10 @@
-[gd_scene load_steps=20 format=3 uid="uid://dvrfbvsiu6dar"]
+[gd_scene load_steps=45 format=3 uid="uid://dvrfbvsiu6dar"]
 
 [ext_resource type="PackedScene" uid="uid://c6d78w18ffyso" path="res://scenes/player/player.tscn" id="1_player"]
 [ext_resource type="Script" uid="uid://ch1dfeu5u6ka7" path="res://scenes/camera_follow.gd" id="2_camera"]
-[ext_resource type="PackedScene" uid="uid://cg5ahfgenj76h" path="res://scenes/levels/block.tscn" id="2_jcy27"]
 [ext_resource type="Script" uid="uid://641ut4p7y3ji" path="res://scenes/death_plane.gd" id="3_death"]
-[ext_resource type="PackedScene" uid="uid://dp7q15dseel3x" path="res://scenes/levels/bar.tscn" id="3_xl0d0"]
 [ext_resource type="Shader" uid="uid://jdwdkvb0xwse" path="res://scenes/levels/grid_ground.gdshader" id="4_grid"]
+[ext_resource type="Script" uid="uid://dk25xr5celqub" path="res://scenes/obstacles/bar.gd" id="5_bar"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_mat"]
 sky_top_color = Color(0.4, 0.58, 0.85, 1)
@@ -40,6 +39,16 @@ adjustment_enabled = true
 adjustment_contrast = 1.06
 adjustment_saturation = 1.12
 
+[sub_resource type="StandardMaterial3D" id="Mat_wall"]
+albedo_color = Color(0.4, 0.4, 0.45, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="Box_A"]
+size = Vector3(1, 10, 6)
+
+[sub_resource type="BoxShape3D" id="Shp_A"]
+size = Vector3(1, 10, 6)
+
 [sub_resource type="ShaderMaterial" id="Mat_ground"]
 render_priority = 0
 shader = ExtResource("4_grid")
@@ -54,15 +63,91 @@ size = Vector3(57.5, 1, 6)
 [sub_resource type="BoxShape3D" id="Shp_B"]
 size = Vector3(57.5, 1, 6)
 
-[sub_resource type="StandardMaterial3D" id="Mat_wall"]
-albedo_color = Color(0.4, 0.4, 0.45, 1)
-roughness = 0.9
+[sub_resource type="BoxMesh" id="Box_G"]
+size = Vector3(3, 1.5, 4)
 
-[sub_resource type="BoxMesh" id="Box_A"]
-size = Vector3(1, 10, 6)
+[sub_resource type="BoxShape3D" id="Shp_G"]
+size = Vector3(3, 1.5, 4)
 
-[sub_resource type="BoxShape3D" id="Shp_A"]
-size = Vector3(1, 10, 6)
+[sub_resource type="BoxMesh" id="Box_H"]
+size = Vector3(14, 1, 6)
+
+[sub_resource type="BoxShape3D" id="Shp_H"]
+size = Vector3(14, 1, 6)
+
+[sub_resource type="StandardMaterial3D" id="Mat_pit"]
+albedo_color = Color(0.08, 0.08, 0.1, 1)
+
+[sub_resource type="BoxMesh" id="Box_M"]
+size = Vector3(14, 1, 8)
+
+[sub_resource type="BoxShape3D" id="Shp_M"]
+size = Vector3(14, 1, 8)
+
+[sub_resource type="StandardMaterial3D" id="Mat_obstacle"]
+albedo_color = Color(0.75, 0.45, 0.2, 1)
+roughness = 0.85
+
+[sub_resource type="BoxMesh" id="Box_C"]
+size = Vector3(1, 0.6, 4)
+
+[sub_resource type="BoxShape3D" id="Shp_C"]
+size = Vector3(1, 0.6, 4)
+
+[sub_resource type="BoxMesh" id="Box_D"]
+size = Vector3(1.2, 1.2, 4)
+
+[sub_resource type="BoxShape3D" id="Shp_D"]
+size = Vector3(1.2, 1.2, 4)
+
+[sub_resource type="BoxMesh" id="Box_E"]
+size = Vector3(0.6, 1, 4)
+
+[sub_resource type="BoxShape3D" id="Shp_E"]
+size = Vector3(0.6, 1, 4)
+
+[sub_resource type="BoxMesh" id="Box_F"]
+size = Vector3(1.5, 0.8, 4)
+
+[sub_resource type="BoxShape3D" id="Shp_F"]
+size = Vector3(1.5, 0.8, 4)
+
+[sub_resource type="BoxMesh" id="Box_I"]
+size = Vector3(1, 0.8, 4)
+
+[sub_resource type="BoxShape3D" id="Shp_I"]
+size = Vector3(1, 0.8, 4)
+
+[sub_resource type="StandardMaterial3D" id="Mat_bar"]
+albedo_color = Color(0.95, 0.8, 0.15, 1)
+metallic = 0.75
+roughness = 0.35
+
+[sub_resource type="CylinderMesh" id="Cyl_bar"]
+top_radius = 0.05
+bottom_radius = 0.05
+height = 4.0
+
+[sub_resource type="CylinderShape3D" id="CylShp_bar"]
+height = 4.0
+radius = 0.05
+
+[sub_resource type="StandardMaterial3D" id="Mat_frame"]
+albedo_color = Color(0.22, 0.22, 0.26, 1)
+metallic = 0.6
+roughness = 0.5
+
+[sub_resource type="BoxMesh" id="Box_K"]
+size = Vector3(12, 0.2, 0.2)
+
+[sub_resource type="BoxShape3D" id="Shp_K"]
+size = Vector3(12, 0.2, 0.2)
+
+[sub_resource type="BoxMesh" id="Box_J"]
+size = Vector3(0.2, 1.6, 0.2)
+
+[sub_resource type="BoxShape3D" id="Shp_J"]
+size = Vector3(0.2, 1.6, 0.2)
 
 [sub_resource type="StandardMaterial3D" id="Mat_goal"]
 albedo_color = Color(0.2, 0.85, 0.3, 1)
@@ -106,7 +191,16 @@ light_color = Color(0.82, 0.88, 1, 1)
 light_energy = 0.7
 
 [node name="Terrain" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.578927, 0, 0)
+
+[node name="Wall1" type="StaticBody3D" parent="Terrain"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.5, 5, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Terrain/Wall1"]
+material_override = SubResource("Mat_wall")
+mesh = SubResource("Box_A")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Terrain/Wall1"]
+shape = SubResource("Shp_A")
 
 [node name="StartGround" type="StaticBody3D" parent="Terrain"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.75, -0.5, 0)
@@ -128,21 +222,192 @@ mesh = SubResource("Box_A")
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Terrain/LeftWall"]
 shape = SubResource("Shp_A")
 
+[node name="EntryPlatform" type="StaticBody3D" parent="Terrain"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43, 0.75, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Terrain/EntryPlatform"]
+material_override = SubResource("Mat_ground")
+mesh = SubResource("Box_G")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Terrain/EntryPlatform"]
+shape = SubResource("Shp_G")
+
+[node name="ExitPlatform" type="StaticBody3D" parent="Terrain"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 58, 0.75, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Terrain/ExitPlatform"]
+material_override = SubResource("Mat_ground")
+mesh = SubResource("Box_G")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Terrain/ExitPlatform"]
+shape = SubResource("Shp_G")
+
+[node name="EndGround" type="StaticBody3D" parent="Terrain"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, -0.5, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Terrain/EndGround"]
+material_override = SubResource("Mat_ground")
+mesh = SubResource("Box_H")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Terrain/EndGround"]
+shape = SubResource("Shp_H")
+
+[node name="PitFloor" type="StaticBody3D" parent="Terrain"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50.5, -5.5, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Terrain/PitFloor"]
+material_override = SubResource("Mat_pit")
+mesh = SubResource("Box_M")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Terrain/PitFloor"]
+shape = SubResource("Shp_M")
+
 [node name="Obstacles" type="Node3D" parent="."]
 
-[node name="Block1" parent="Obstacles" instance=ExtResource("2_jcy27")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.5, -2, 0)
+[node name="Bump1" type="StaticBody3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 0.3, 0)
 
-[node name="Block" parent="Obstacles" instance=ExtResource("2_jcy27")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.5, -1, 0)
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Obstacles/Bump1"]
+material_override = SubResource("Mat_obstacle")
+mesh = SubResource("Box_C")
 
-[node name="Block2" parent="Obstacles" instance=ExtResource("2_jcy27")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.5, 0, 0)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Obstacles/Bump1"]
+shape = SubResource("Shp_C")
+
+[node name="Block2" type="StaticBody3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 22, 0.6, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Obstacles/Block2"]
+material_override = SubResource("Mat_obstacle")
+mesh = SubResource("Box_D")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Obstacles/Block2"]
+shape = SubResource("Shp_D")
+
+[node name="Hurdle3" type="StaticBody3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 32, 0.5, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Obstacles/Hurdle3"]
+material_override = SubResource("Mat_obstacle")
+mesh = SubResource("Box_E")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Obstacles/Hurdle3"]
+shape = SubResource("Shp_E")
+
+[node name="Step1" type="StaticBody3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 0.4, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Obstacles/Step1"]
+material_override = SubResource("Mat_obstacle")
+mesh = SubResource("Box_F")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Obstacles/Step1"]
+shape = SubResource("Shp_F")
+
+[node name="StepDown" type="StaticBody3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 60, 0.4, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Obstacles/StepDown"]
+material_override = SubResource("Mat_obstacle")
+mesh = SubResource("Box_I")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Obstacles/StepDown"]
+shape = SubResource("Shp_I")
 
 [node name="MonkeyBars" type="Node3D" parent="."]
 
-[node name="Bar" parent="MonkeyBars" instance=ExtResource("3_xl0d0")]
-transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, 10.707082, 4.4843264, 0)
+[node name="Bar1" type="StaticBody3D" parent="MonkeyBars"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 46.5, 3.084, 0)
+script = ExtResource("5_bar")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar1"]
+material_override = SubResource("Mat_bar")
+mesh = SubResource("Cyl_bar")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/Bar1"]
+shape = SubResource("CylShp_bar")
+
+[node name="Bar3" type="StaticBody3D" parent="MonkeyBars"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 50.5, 3.084, 0)
+script = ExtResource("5_bar")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar3"]
+material_override = SubResource("Mat_bar")
+mesh = SubResource("Cyl_bar")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/Bar3"]
+shape = SubResource("CylShp_bar")
+
+[node name="Bar5" type="StaticBody3D" parent="MonkeyBars"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 54.5, 3.084, 0)
+script = ExtResource("5_bar")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/Bar5"]
+material_override = SubResource("Mat_bar")
+mesh = SubResource("Cyl_bar")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/Bar5"]
+shape = SubResource("CylShp_bar")
+
+[node name="RailBack" type="StaticBody3D" parent="MonkeyBars"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50.5, 3.1, -2)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/RailBack"]
+material_override = SubResource("Mat_frame")
+mesh = SubResource("Box_K")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/RailBack"]
+shape = SubResource("Shp_K")
+
+[node name="RailFront" type="StaticBody3D" parent="MonkeyBars"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50.5, 3.1, 2)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/RailFront"]
+material_override = SubResource("Mat_frame")
+mesh = SubResource("Box_K")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/RailFront"]
+shape = SubResource("Shp_K")
+
+[node name="LegBL" type="StaticBody3D" parent="MonkeyBars"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 44.5, 2.3, -2)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/LegBL"]
+material_override = SubResource("Mat_frame")
+mesh = SubResource("Box_J")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/LegBL"]
+shape = SubResource("Shp_J")
+
+[node name="LegFL" type="StaticBody3D" parent="MonkeyBars"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 44.5, 2.3, 2)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/LegFL"]
+material_override = SubResource("Mat_frame")
+mesh = SubResource("Box_J")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/LegFL"]
+shape = SubResource("Shp_J")
+
+[node name="LegBR" type="StaticBody3D" parent="MonkeyBars"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 56.5, 2.3, -2)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/LegBR"]
+material_override = SubResource("Mat_frame")
+mesh = SubResource("Box_J")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/LegBR"]
+shape = SubResource("Shp_J")
+
+[node name="LegFR" type="StaticBody3D" parent="MonkeyBars"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 56.5, 2.3, 2)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MonkeyBars/LegFR"]
+material_override = SubResource("Mat_frame")
+mesh = SubResource("Box_J")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MonkeyBars/LegFR"]
+shape = SubResource("Shp_J")
 
 [node name="Goal" type="StaticBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 68, 1, 0)
@@ -162,29 +427,29 @@ script = ExtResource("3_death")
 shape = SubResource("Shp_Death")
 
 [node name="Tutorial" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.8327513, 0, 0)
 
 [node name="N1Title" type="Label3D" parent="Tutorial"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.361701, 4.8, 0.5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 4.8, 0.5)
+pixel_size = 0.006
 billboard = 1
 modulate = Color(0.14, 0.13, 0.2, 1)
 outline_modulate = Color(0.97, 0.97, 0.95, 1)
-text = "ROTATE LEFT HAND"
+text = "MOVE LEFT HAND"
 font_size = 80
 outline_size = 20
 
-[node name="N1Sub" type="Label3D" parent="Tutorial/N1Title"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.026565552, -0.5, 0)
+[node name="N1Sub" type="Label3D" parent="Tutorial"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 4.3, 0.5)
 pixel_size = 0.0042
 billboard = 1
 modulate = Color(0.14, 0.13, 0.2, 1)
 outline_modulate = Color(0.97, 0.97, 0.95, 1)
-text = "HOLD [A] + DRAG MOUSE"
+text = "HOLD [A] + MOUSE"
 font_size = 80
 outline_size = 20
 
 [node name="N2Title" type="Label3D" parent="Tutorial"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.5825157, 4.8, 0.5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 4.8, 0.5)
 pixel_size = 0.006
 billboard = 1
 modulate = Color(0.14, 0.13, 0.2, 1)
@@ -193,8 +458,8 @@ text = "MOVE RIGHT HAND"
 font_size = 80
 outline_size = 20
 
-[node name="N2Sub" type="Label3D" parent="Tutorial/N2Title"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+[node name="N2Sub" type="Label3D" parent="Tutorial"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 4.3, 0.5)
 pixel_size = 0.0042
 billboard = 1
 modulate = Color(0.14, 0.13, 0.2, 1)
@@ -213,8 +478,8 @@ text = "GRAB / LEFT HAND"
 font_size = 80
 outline_size = 20
 
-[node name="N3Sub" type="Label3D" parent="Tutorial/N3Title"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+[node name="N3Sub" type="Label3D" parent="Tutorial"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 4.3, 0.5)
 pixel_size = 0.0042
 billboard = 1
 modulate = Color(0.14, 0.13, 0.2, 1)
@@ -233,8 +498,8 @@ text = "GRAB / RIGHT HAND"
 font_size = 80
 outline_size = 20
 
-[node name="N4Sub" type="Label3D" parent="Tutorial/N4Title"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+[node name="N4Sub" type="Label3D" parent="Tutorial"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 22, 4.3, 0.5)
 pixel_size = 0.0042
 billboard = 1
 modulate = Color(0.14, 0.13, 0.2, 1)
@@ -253,8 +518,8 @@ text = "PULL YOURSELF"
 font_size = 80
 outline_size = 20
 
-[node name="N5Sub" type="Label3D" parent="Tutorial/N5Title"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+[node name="N5Sub" type="Label3D" parent="Tutorial"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 32, 4.3, 0.5)
 pixel_size = 0.0042
 billboard = 1
 modulate = Color(0.14, 0.13, 0.2, 1)
@@ -263,10 +528,10 @@ text = "DRAG MOUSE WHILE HELD"
 font_size = 80
 outline_size = 20
 
+[node name="Player" parent="." instance=ExtResource("1_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.98083216, 0.19485459, 0, -0.19485459, 0.98083216, -0.15624952, 16.139973, 12.481221)
+transform = Transform3D(1, 0, 0, 0, 0.98083216, 0.19485459, 0, -0.19485459, 0.98083216, -0.15624952, 8.958995, 12.481221)
 script = ExtResource("2_camera")
 target_path = NodePath("../Player")
-
-[node name="Player" parent="." instance=ExtResource("1_player")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 9.180977, 0)
